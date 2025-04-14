@@ -1,4 +1,6 @@
-package pucp.edu.glp.glpdp1.modelos;
+package pucp.edu.glp.glpdp1.models;
+
+import java.util.Objects;
 
 public class Coordenada {
     private int x;
@@ -27,5 +29,22 @@ public class Coordenada {
 
     public double distancia(Coordenada coordenada){
         return Math.abs(this.x - coordenada.getX()) + Math.abs(this.y - coordenada.getY());
+    }
+
+    @Override
+    public boolean equals(Object obj){
+        if(!(obj instanceof Coordenada)) return false;
+        Coordenada otra = (Coordenada) obj;
+        return this.x == otra.getX() && this.y == otra.getY();
+    }
+
+    @Override
+    public int hashCode(){
+        return Objects.hash(x,y);
+    }
+
+    @Override
+    public String toString(){
+        return "("+x+","+y+")";
     }
 }
