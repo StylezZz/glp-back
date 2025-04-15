@@ -1,10 +1,7 @@
 package pucp.edu.glp.glpdp1.algorithm;
 
 import org.springframework.cglib.core.Local;
-import pucp.edu.glp.glpdp1.models.Flota;
-import pucp.edu.glp.glpdp1.models.Mapa;
-import pucp.edu.glp.glpdp1.models.Pedido;
-import pucp.edu.glp.glpdp1.models.PlanRutas;
+import pucp.edu.glp.glpdp1.models.*;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -28,6 +25,7 @@ public class ACO {
     private double[][] feromonas;
     private double mejorCosto;
     private PlanRutas mejorSolucion;
+    private Coordenada ultimaPosicion;
 
     public ACO(){
         this(NUM_HORMIGAS_DEFAULT, TASA_EVAPORACION_DEFAULT, ALPHA_DEFAULT, BETA_DEFAULT, Q0_DEFAULT);
@@ -77,6 +75,8 @@ public class ACO {
         PlanRutas plan = new PlanRutas();
         List<Pedido> pedidosPendientes = new ArrayList<>(pedidos);
 
+        ultimaPosicion = mapa.getAlmacenes().get(0).getUbicacion();
+
         while(!pedidosPendientes.isEmpty()){
             double q = Math.random();
             Pedido siguiente;
@@ -87,6 +87,7 @@ public class ACO {
                 siguiente = seleccionarPedidoProbabilistico(pedidosPendientes, mapa);
             }
             asignarPedidoACamion(siguiente,plan,flota);
+            ultimaPosicion = siguiente.getUbicacion();
             pedidosPendientes.remove(siguiente);
         }
         return plan;
@@ -108,13 +109,24 @@ public class ACO {
     }
 
     private double obtenerFeromona(Pedido pedido, Mapa mapa){
-        int x = pedido.getCoordenada().getX();
-        int y = pedido.getCoordenada().getY();
+        int x = pedido.getUbicacion().getX();
+        int y = pedido.getUbicacion().getY();
         return feromonas[x][y];
     }
 
-    private double obtenerHeuristica(Pedido pedido, Mapa mapa){
-        double distancia = pedido.getCoordenada().distanciaA()
+    private double obtenerHeuristica(Pedido pedido, Mapa mapa) {
+        // 1.- Distancia al pedido (usando distacia Manhattan implementada en Coordenada)
+        double distancia = pedido.getUbicacion().distancia(ultimaPosicion);
+
+        // 2.- Urgencia: tiempo restante hasta el límite
+        double tiempoRestante = pedido.getTiempoLimite().toMinutes();
+
+        // 3.- Factor de cantidad
+        double cantidad = pedido.getCantidad();
+
+        double valorHeuristica = 1.0/(distancia*Math.max(1.0,tiempoRestante/60.0)*Math.max(1.0,cantidad/100.0));
+
+        return valorHeuristica;
     }
 
     private Pedido seleccionarPedidoProbabilistico(List<Pedido> pedidosPendientes, Mapa mapa){

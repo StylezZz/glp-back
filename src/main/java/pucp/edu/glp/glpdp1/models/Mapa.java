@@ -20,6 +20,14 @@ public class Mapa {
         this.almacenes = new ArrayList<>();
     }
 
+    public List<Bloqueo> getBloqueos() {
+        return bloqueos;
+    }
+
+    public List<Almacen> getAlmacenes() {
+        return almacenes;
+    }
+
     public void agregarBloqueo(Bloqueo bloqueo){
         bloqueos.add(bloqueo);
     }
