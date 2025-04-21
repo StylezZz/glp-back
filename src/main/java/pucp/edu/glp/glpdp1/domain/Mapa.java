@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+
 @Getter @Setter
 public class Mapa {
     private int ancho;
@@ -23,7 +24,7 @@ public class Mapa {
     private LocalDateTime fechaFin;
 
     // Setear almacenes
-    private Mapa(int ancho,int alto,String nombreArchivo){
+    public Mapa(int ancho,int alto){
         this.ancho = ancho;
         this.alto = alto;
         this.almacenes = new ArrayList<>();
@@ -33,7 +34,7 @@ public class Mapa {
 
         cargaAlmacenes();
         cargaFlota();
-        cargarAverias(nombreArchivo);
+        //cargarAverias(nombreArchivo);
     }
 
     private void cargaAlmacenes(){
@@ -115,6 +116,11 @@ public class Mapa {
 
     private void cargarAverias(String filaName){
         //Leer archivo
+
+    }
+
+    private void cargarPedidos(String rutaArchivoPedidos){
+
 
     }
 
