@@ -4,6 +4,8 @@ import org.springframework.stereotype.Service;
 import pucp.edu.glp.glpdp1.domain.Bloqueo;
 import pucp.edu.glp.glpdp1.domain.Mapa;
 import pucp.edu.glp.glpdp1.domain.Pedido;
+import pucp.edu.glp.glpdp1.domain.Averia;
+import pucp.edu.glp.glpdp1.service.AveriaService;
 
 import java.io.IOException;
 import java.util.List;
@@ -13,9 +15,11 @@ public class MapaService {
 
     private final PedidoService pedidoService;
     private final BloqueosService bloqueosService;
+    private final AveriaService averiaService;
 
-    public MapaService(PedidoService pedidoService, BloqueosService bloqueosService) {
+    public MapaService(PedidoService pedidoService, AveriaService averiaService, BloqueosService bloqueosService) {
         this.pedidoService = pedidoService;
+        this.averiaService = averiaService;
         this.bloqueosService = bloqueosService;
     }
 
@@ -60,6 +64,14 @@ public class MapaService {
             mapa.setBloqueos(bloqueos);
         }catch(IOException e){
             throw new RuntimeException("Error al cargar bloqueos desde datos binarios", e);
+        }
+    }
+    public void cargarAveriasEnMapaDesdeBytes(Mapa mapa, byte[] datos) {
+        try {
+            List<Averia> averias = averiaService.cargarAveriasDesdeBytes(datos);
+            mapa.setAverias(averias);
+        } catch (IOException e) {
+            throw new RuntimeException("Error al cargar averias desde datos binarios", e);
         }
     }
 }
