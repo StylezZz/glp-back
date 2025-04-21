@@ -7,9 +7,8 @@ import org.springframework.stereotype.Component;
 
 import pucp.edu.glp.glpdp1.algorithm.aco.*;
 import pucp.edu.glp.glpdp1.algorithm.util.GeneradorDatasetPrueba;
-import pucp.edu.glp.glpdp1.models.*;
+import pucp.edu.glp.glpdp1.domain.*;
 
-import java.time.LocalDateTime;
 import java.util.*;
 
 @SpringBootApplication
