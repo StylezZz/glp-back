@@ -43,4 +43,16 @@ public class MapaController {
             return ResponseEntity.badRequest().body("Error al cargar bloqueos: " + e.getMessage());
         }
     }
+
+    @GetMapping("/pedidos")
+    public ResponseEntity<?> obtenerPedidos() {
+        return ResponseEntity.ok(mapa.getPedidos());
+    }
+
+    @GetMapping("/bloqueos")
+    public ResponseEntity<?> obtenerBloqueos() {
+        return ResponseEntity.ok(mapa.getBloqueos());
+    }
+
+
 }
