@@ -1,6 +1,5 @@
 package pucp.edu.glp.glpdp1.api;
 
-import org.apache.coyote.Response;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -34,25 +33,8 @@ public class MapaController {
         }
     }
 
-    @PostMapping("/cargar-bloqueos")
-    public ResponseEntity<String> cargarBloqueos(@RequestParam("archivo") MultipartFile archivo){
-        try{
-            mapaService.cargarBloqueosEnMapaDesdeBytes(mapa, archivo.getBytes());
-            return ResponseEntity.ok("Bloqueos cargados correctamente. Total: " + mapa.getBloqueos().size());
-        }catch(IOException e){
-            return ResponseEntity.badRequest().body("Error al cargar bloqueos: " + e.getMessage());
-        }
-    }
-
     @GetMapping("/pedidos")
     public ResponseEntity<?> obtenerPedidos() {
         return ResponseEntity.ok(mapa.getPedidos());
     }
-
-    @GetMapping("/bloqueos")
-    public ResponseEntity<?> obtenerBloqueos() {
-        return ResponseEntity.ok(mapa.getBloqueos());
-    }
-
-
 }
