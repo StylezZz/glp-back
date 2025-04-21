@@ -35,4 +35,15 @@ public class MapaController {
             return ResponseEntity.badRequest().body("Error al cargar pedidos: " + e.getMessage());
         }
     }
+
+    @PostMapping("/cargar-averias")
+    public ResponseEntity<String> cargarAverias(@RequestParam("archivo") MultipartFile archivo) {
+        try {
+            // Cargar averias desde el archivo subido
+            mapaService.cargarAveriasEnMapaDesdeBytes(mapa, archivo.getBytes());
+            return ResponseEntity.ok("Averias cargadas correctamente. Total: " + mapa.getAverias().size());
+        } catch (IOException e) {
+            return ResponseEntity.badRequest().body("Error al cargar averias: " + e.getMessage());
+        }
+    }
 }

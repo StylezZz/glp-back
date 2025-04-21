@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 
 import pucp.edu.glp.glpdp1.domain.Mapa;
 import pucp.edu.glp.glpdp1.service.PedidoService;
+import pucp.edu.glp.glpdp1.service.AveriaService;
 import pucp.edu.glp.glpdp1.service.MapaService;
 
 import java.io.IOException;
@@ -35,10 +36,14 @@ public class Glpdp1Application {
 	public PedidoService pedidoService() {
 		return new PedidoService();
 	}
+	@Bean
+	public AveriaService averiaService() {
+		return new AveriaService();
+	}
 
 	@Bean
-	public MapaService mapaService(PedidoService pedidoService) {
-		return new MapaService(pedidoService);
+	public MapaService mapaService(PedidoService pedidoService, AveriaService averiaService) {
+		return new MapaService(pedidoService, averiaService);
 	}
 
 	// Este bean es solo para pruebas, en una aplicación real

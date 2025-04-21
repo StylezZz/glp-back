@@ -3,6 +3,8 @@ package pucp.edu.glp.glpdp1.service;
 import org.springframework.stereotype.Service;
 import pucp.edu.glp.glpdp1.domain.Mapa;
 import pucp.edu.glp.glpdp1.domain.Pedido;
+import pucp.edu.glp.glpdp1.domain.Averia;
+import pucp.edu.glp.glpdp1.service.AveriaService;
 
 import java.io.IOException;
 import java.util.List;
@@ -11,9 +13,11 @@ import java.util.List;
 public class MapaService {
 
     private final PedidoService pedidoService;
+    private final AveriaService averiaService;
 
-    public MapaService(PedidoService pedidoService) {
+    public MapaService(PedidoService pedidoService, AveriaService averiaService) {
         this.pedidoService = pedidoService;
+        this.averiaService = averiaService;
     }
 
     /**
@@ -39,6 +43,15 @@ public class MapaService {
             mapa.setPedidos(pedidos);
         } catch (IOException e) {
             throw new RuntimeException("Error al cargar pedidos desde datos binarios", e);
+        }
+    }
+
+    public void cargarAveriasEnMapaDesdeBytes(Mapa mapa, byte[] datos) {
+        try {
+            List<Averia> averias = averiaService.cargarAveriasDesdeBytes(datos);
+            mapa.setAverias(averias);
+        } catch (IOException e) {
+            throw new RuntimeException("Error al cargar averias desde datos binarios", e);
         }
     }
 }
