@@ -2,63 +2,98 @@ package pucp.edu.glp.glpdp1;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
+import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.ResponseEntity;
 
-import pucp.edu.glp.glpdp1.algorithm.aco.*;
-import pucp.edu.glp.glpdp1.algorithm.util.GeneradorDatasetPrueba;
-import pucp.edu.glp.glpdp1.domain.*;
+import pucp.edu.glp.glpdp1.domain.Mapa;
+import pucp.edu.glp.glpdp1.service.BloqueosService;
+import pucp.edu.glp.glpdp1.service.PedidoService;
+import pucp.edu.glp.glpdp1.service.MapaService;
 
-import java.util.*;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
-@SpringBootApplication
+@SpringBootApplication(exclude = {
+		DataSourceAutoConfiguration.class,
+		HibernateJpaAutoConfiguration.class,
+		SecurityAutoConfiguration.class  // Añade esta línea
+})
 public class Glpdp1Application {
 
 	public static void main(String[] args) {
 		SpringApplication.run(Glpdp1Application.class, args);
 	}
 
-	@Component
-	public class ACORunner implements CommandLineRunner {
-		@Override
-		public void run(String... args) {
-			System.out.println("Iniciando aplicación de optimización de rutas con ACO híbrido");
-			System.out.println("Versión con implementación de requisitos RF85-RF100");
-			System.out.println("========================================================");
+	// Registrar servicios como beans de Spring
+	@Bean
+	public PedidoService pedidoService() {
+		return new PedidoService();
+	}
 
-			// Generar datos de prueba usando el dataset específico
-			GeneradorDatasetPrueba generadorPrueba = new GeneradorDatasetPrueba();
-			generadorPrueba.generarDatasetCompleto();
+	@Bean
+	public MapaService mapaService(PedidoService pedidoService, BloqueosService bloqueosService) {
+		return new MapaService(pedidoService,bloqueosService);
+	}
 
-			// Aquí puedes incluir el código de Main.java para ejecutar el algoritmo
-			// También puedes crear un método separado o una clase de servicio para
-			// organizar mejor la lógica de ejecución
-			ejecutarAlgoritmoACO();
+	// Este bean es solo para pruebas, en una aplicación real
+	// posiblemente sería gestionado por un repositorio
+	@Bean
+	public Mapa mapa() {
+		return new Mapa(100, 100);
+	}
+
+	// Controlador REST integrado para simplificar
+	@RestController
+	@RequestMapping("/api")
+	public static class PedidoController {
+
+		private final MapaService mapaService;
+		private final Mapa mapa;
+
+		public PedidoController(MapaService mapaService, Mapa mapa) {
+			this.mapaService = mapaService;
+			this.mapa = mapa;
 		}
 
-		private void ejecutarAlgoritmoACO() {
-			// Generar datos de prueba
-			GeneradorDatos generador = new GeneradorDatos();
+		@PostMapping("/cargar-pedidos-archivo")
+		public ResponseEntity<String> cargarPedidosDesdeArchivo(@RequestParam("ruta") String rutaArchivo) {
+			try {
+				mapaService.cargarPedidosEnMapa(mapa, rutaArchivo);
+				return ResponseEntity.ok("Pedidos cargados exitosamente. Total: " + mapa.getPedidos().size());
+			} catch (Exception e) {
+				return ResponseEntity.badRequest().body("Error al cargar pedidos: " + e.getMessage());
+			}
+		}
 
-			System.out.println("Generando mapa...");
-			Mapa mapa = generador.generarMapa();
+		@PostMapping("/cargar-pedidos")
+		public ResponseEntity<String> cargarPedidos(@RequestParam("archivo") MultipartFile archivo) {
+			try {
+				// Guardar el archivo temporalmente
+				Path tempPath = Files.createTempFile("pedidos-", ".txt");
+				archivo.transferTo(tempPath.toFile());
 
-			System.out.println("Generando flota de camiones...");
-			Flota flota = generador.generarFlota(10);
+				// Cargar pedidos desde el archivo
+				mapaService.cargarPedidosEnMapa(mapa, tempPath.toString());
 
-			System.out.println("Generando pedidos...");
-			List<Pedido> pedidos = generador.generarPedidos(20);
+				// Eliminar el archivo temporal
+				Files.delete(tempPath);
 
-			// Resto del código de ejecución...
-			// (Puedes copiar el resto del contenido del método main de Main.java)
+				return ResponseEntity.ok("Pedidos cargados exitosamente. Total: " + mapa.getPedidos().size());
+			} catch (IOException e) {
+				return ResponseEntity.badRequest().body("Error al cargar pedidos: " + e.getMessage());
+			}
+		}
 
-			// Configurar y ejecutar algoritmo
-			AlgoritmoACO algoritmo = new AlgoritmoACO();
-			// Configurar algoritmo...
-			Solucion mejorSolucion = algoritmo.ejecutar();
-
-			// Mostrar resultados...
-			System.out.println("\nOptimización completada exitosamente.");
+		@GetMapping("/pedidos")
+		public ResponseEntity<?> obtenerPedidos() {
+			return ResponseEntity.ok(mapa.getPedidos());
 		}
 	}
 }

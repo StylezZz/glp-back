@@ -5,12 +5,10 @@ import lombok.Setter;
 import pucp.edu.glp.glpdp1.domain.enums.TipoAlmacen;
 import pucp.edu.glp.glpdp1.domain.enums.TipoCamion;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+
 
 @Getter @Setter
 public class Mapa {
@@ -26,7 +24,7 @@ public class Mapa {
     private LocalDateTime fechaFin;
 
     // Setear almacenes
-    private Mapa(int ancho,int alto,String nombreArchivo){
+    public Mapa(int ancho,int alto){
         this.ancho = ancho;
         this.alto = alto;
         this.almacenes = new ArrayList<>();
@@ -36,7 +34,7 @@ public class Mapa {
 
         cargaAlmacenes();
         cargaFlota();
-        cargarAverias(nombreArchivo);
+        //cargarAverias(nombreArchivo);
     }
 
     private void cargaAlmacenes(){
@@ -120,4 +118,10 @@ public class Mapa {
         //Leer archivo
 
     }
+
+    private void cargarPedidos(String rutaArchivoPedidos){
+
+
+    }
+
 }
