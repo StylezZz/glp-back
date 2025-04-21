@@ -1,6 +1,7 @@
 package pucp.edu.glp.glpdp1.service;
 
 import org.springframework.stereotype.Service;
+import pucp.edu.glp.glpdp1.domain.Bloqueo;
 import pucp.edu.glp.glpdp1.domain.Mapa;
 import pucp.edu.glp.glpdp1.domain.Pedido;
 import pucp.edu.glp.glpdp1.domain.Averia;
@@ -13,11 +14,13 @@ import java.util.List;
 public class MapaService {
 
     private final PedidoService pedidoService;
+    private final BloqueosService bloqueosService;
     private final AveriaService averiaService;
 
-    public MapaService(PedidoService pedidoService, AveriaService averiaService) {
+    public MapaService(PedidoService pedidoService, AveriaService averiaService, BloqueosService bloqueosService) {
         this.pedidoService = pedidoService;
         this.averiaService = averiaService;
+        this.bloqueosService = bloqueosService;
     }
 
     /**
@@ -46,6 +49,23 @@ public class MapaService {
         }
     }
 
+    public void cargarBloqueosEnMapa(Mapa mapa,String rutaArchivo){
+        try{
+            List<Bloqueo> bloqueos = bloqueosService.cargarBloqueosDesdeArchivo(rutaArchivo);
+            mapa.setBloqueos(bloqueos);
+        }catch(IOException e){
+            throw new RuntimeException("Error al cargar bloqueos desde archivo: " + rutaArchivo, e);
+        }
+    }
+
+    public void cargarBloqueosEnMapaDesdeBytes(Mapa mapa, byte[] datos){
+        try{
+            List<Bloqueo> bloqueos = bloqueosService.cargarBloqueosDesdeBytes(datos);
+            mapa.setBloqueos(bloqueos);
+        }catch(IOException e){
+            throw new RuntimeException("Error al cargar bloqueos desde datos binarios", e);
+        }
+    }
     public void cargarAveriasEnMapaDesdeBytes(Mapa mapa, byte[] datos) {
         try {
             List<Averia> averias = averiaService.cargarAveriasDesdeBytes(datos);

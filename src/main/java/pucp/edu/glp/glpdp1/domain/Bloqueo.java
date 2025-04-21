@@ -11,4 +11,10 @@ public class Bloqueo {
     private LocalDateTime fechaInicio;
     private LocalDateTime fechaFinal;
     private List<Ubicacion> tramos;
+
+    public Bloqueo(LocalDateTime fechaInicio, LocalDateTime fechaFinal, List<Ubicacion> tramos) {
+        this.fechaInicio = fechaInicio;
+        this.fechaFinal = fechaFinal;
+        this.tramos = tramos;
+    }
 }

@@ -2,10 +2,7 @@ package pucp.edu.glp.glpdp1.api;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import pucp.edu.glp.glpdp1.domain.Mapa;
 import pucp.edu.glp.glpdp1.service.MapaService;
@@ -36,6 +33,11 @@ public class MapaController {
         }
     }
 
+    @GetMapping("/pedidos")
+    public ResponseEntity<?> obtenerPedidos() {
+        return ResponseEntity.ok(mapa.getPedidos());
+    }
+  
     @PostMapping("/cargar-averias")
     public ResponseEntity<String> cargarAverias(@RequestParam("archivo") MultipartFile archivo) {
         try {

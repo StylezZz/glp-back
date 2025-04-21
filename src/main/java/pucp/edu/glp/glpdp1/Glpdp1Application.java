@@ -11,6 +11,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.http.ResponseEntity;
 
 import pucp.edu.glp.glpdp1.domain.Mapa;
+import pucp.edu.glp.glpdp1.service.BloqueosService;
 import pucp.edu.glp.glpdp1.service.PedidoService;
 import pucp.edu.glp.glpdp1.service.AveriaService;
 import pucp.edu.glp.glpdp1.service.MapaService;
@@ -42,8 +43,8 @@ public class Glpdp1Application {
 	}
 
 	@Bean
-	public MapaService mapaService(PedidoService pedidoService, AveriaService averiaService) {
-		return new MapaService(pedidoService, averiaService);
+	public MapaService mapaService(PedidoService pedidoService, AveriaService averiaService, BloqueosService bloqueosService) {
+		return new MapaService(pedidoService, averiaService, bloqueosService);
 	}
 
 	// Este bean es solo para pruebas, en una aplicación real
