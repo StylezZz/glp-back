@@ -6,7 +6,7 @@ import pucp.edu.glp.glpdp1.domain.enums.TipoCamion;
 
 @Getter @Setter
 public class Camion {
-    private int id;
+    private String idC;
     private TipoCamion tipo;
     private double pesoBrutoTon;       // ton
     private double cargaM3;           // m3

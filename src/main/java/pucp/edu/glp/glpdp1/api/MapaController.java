@@ -1,13 +1,16 @@
 package pucp.edu.glp.glpdp1.api;
 
+import org.apache.coyote.Response;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import pucp.edu.glp.glpdp1.domain.Bloqueo;
 import pucp.edu.glp.glpdp1.domain.Mapa;
 import pucp.edu.glp.glpdp1.service.MapaService;
 
 import java.io.IOException;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/mapa")
@@ -47,5 +50,30 @@ public class MapaController {
         } catch (IOException e) {
             return ResponseEntity.badRequest().body("Error al cargar averias: " + e.getMessage());
         }
+    }
+
+    @GetMapping("/averias")
+    public ResponseEntity<?> obtenerAverias(){
+        return ResponseEntity.ok(mapa.getAverias());
+    }
+
+    @PostMapping("/cargar-bloqueos")
+    public ResponseEntity<String> cargarBloqueos(@RequestParam("archivo")MultipartFile archivo){
+        try{
+            mapaService.cargarBloqueosEnMapaDesdeBytes(mapa, archivo.getBytes());
+            return ResponseEntity.ok("Bloqueos cargados correctamente. Total: " + mapa.getBloqueos().size());
+        }catch(IOException e){
+            return ResponseEntity.badRequest().body("Error al cargar bloqueos: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/bloqueos")
+    public ResponseEntity<?> obtenerBloqueos(){
+        return ResponseEntity.ok(mapa.getBloqueos());
+    }
+
+    @GetMapping("/ver-mapa")
+    public ResponseEntity<?> verMapa(){
+        return ResponseEntity.ok(mapa);
     }
 }

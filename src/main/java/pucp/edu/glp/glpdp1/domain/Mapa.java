@@ -69,6 +69,7 @@ public class Mapa {
     private void cargarTipoD(){
         for(int i =0; i<10;i++){
             Camion camion = new Camion();
+            camion.setIdC("TD"+String.format("%02d",i+1));
             camion.setTipo(TipoCamion.TD);
             camion.setPesoBrutoTon(1.0);
             camion.setCargaM3(5.0);
@@ -81,6 +82,7 @@ public class Mapa {
     private void cargarTipoC(){
         for(int i=0;i<4;i++){
             Camion camion = new Camion();
+            camion.setIdC("TC"+String.format("%02d",i+1));
             camion.setTipo(TipoCamion.TC);
             camion.setPesoBrutoTon(1.5);
             camion.setCargaM3(10.0);
@@ -93,6 +95,7 @@ public class Mapa {
     private void cargarTipoB(){
         for(int i=0;i<4;i++){
             Camion camion = new Camion();
+            camion.setIdC("TB"+String.format("%02d",i+1));
             camion.setTipo(TipoCamion.TB);
             camion.setPesoBrutoTon(2.0);
             camion.setCargaM3(15.0);
@@ -105,6 +108,7 @@ public class Mapa {
     private void cargarTipoA(){
         for(int i=0;i<2;i++){
             Camion camion = new Camion();
+            camion.setIdC("TA"+String.format("%02d",i+1));
             camion.setTipo(TipoCamion.TA);
             camion.setPesoBrutoTon(2.5);
             camion.setCargaM3(25.0);
