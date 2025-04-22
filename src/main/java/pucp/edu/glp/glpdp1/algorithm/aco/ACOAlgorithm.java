@@ -78,6 +78,10 @@ public class ACOAlgorithm {
         inicializarAlgoritmo();
     }
 
+    private void debug(String mensaje){
+        System.out.println("[ACO] "+ mensaje);
+    }
+
     /**
      * Inicializa las estructuras de datos necesarias para el algoritmo
      */
@@ -116,6 +120,15 @@ public class ACOAlgorithm {
         for (Almacen almacen : mapa.getAlmacenes()) {
             // Al inicio todos los tanques están llenos
             capacidadActualTanques.put(almacen.getTipoAlmacen(), almacen.getCapacidadEfectivaM3());
+        }
+    }
+
+    private void debugAsignacion(Camion camion,List<Pedido> pedidos){
+        System.out.println("🛻 ["+camion.getIdC()+"] Asignado con " + pedidos.size() + " pedidos:");
+        for(Pedido p: pedidos){
+            System.out.println("   📦 Pedido #" + p.getIdPedido() +
+                    " - Volumen: " + p.getVolumen() + "m³" +
+                    " - Destino: (" + p.getDestino().getX() + "," + p.getDestino().getY() + ")");
         }
     }
 
@@ -193,6 +206,20 @@ public class ACOAlgorithm {
                         capacidadActualTanques
                 );
 
+                System.out.println("\n=== Hormiga #" + (i + 1) + "  - Iteración " + iteracion + " ===");
+                if(solucion.getAsignaciones().isEmpty()){
+                    System.out.println("⚠️ No se pudieron realizar asignaciones");
+                }else{
+                    for(CamionAsignacion asignacion: solucion.getAsignaciones()){
+                        debugAsignacion(asignacion.getCamion(), asignacion.getPedidos());
+                    }
+                }
+
+                if(!solucion.getPedidosNoAsignados().isEmpty()){
+                    System.out.println("❌ " + solucion.getPedidosNoAsignados().size() +
+                            " pedidos no pudieron asignarse");
+                }
+
                 // Evaluar calidad de la solución
                 double calidad = evaluarSolucion(solucion, tiempoActual);
                 solucion.setCalidad(calidad);
@@ -248,6 +275,19 @@ public class ACOAlgorithm {
         }
 
         logger.info("Algoritmo ACO finalizado después de " + iteracion + " iteraciones");
+        // Mostrar la mejor solución encontrada
+        System.out.println("\n✅ MEJOR SOLUCIÓN ENCONTRADA (Calidad: " +
+                String.format("%.6f", mejorCalidadGlobal) + ")");
+        if (mejorSolucionGlobal != null) {
+            System.out.println("Total asignaciones: " + mejorSolucionGlobal.getAsignaciones().size());
+            for (CamionAsignacion asignacion : mejorSolucionGlobal.getAsignaciones()) {
+                debugAsignacion(asignacion.getCamion(), asignacion.getPedidos());
+            }
+            if (!mejorSolucionGlobal.getPedidosNoAsignados().isEmpty()) {
+                System.out.println("❌ " + mejorSolucionGlobal.getPedidosNoAsignados().size() +
+                        " pedidos no pudieron asignarse");
+            }
+        }
         return convertirSolucionARutas(mejorSolucionGlobal);
     }
 
@@ -291,6 +331,10 @@ public class ACOAlgorithm {
             // Verificar que los tramos sean adyacentes
             for (int i = 0; i < bloqueo.getTramos().size() - 1; i++) {
                 if (!sonAdyacentes(bloqueo.getTramos().get(i), bloqueo.getTramos().get(i + 1))) {
+                    errores.add("Bloqueo en " + bloqueo.getFechaInicio());
+                    for(Ubicacion tramo : bloqueo.getTramos()){
+                        errores.add("Tramo: " + tramo.getX() + "," + tramo.getY());
+                    }
                     errores.add("Bloqueo en " + bloqueo.getFechaInicio() + ": Tramos no adyacentes");
                     inconsistenciasDetectadas = true;
                 }
@@ -328,11 +372,7 @@ public class ACOAlgorithm {
      * Verifica si dos ubicaciones son adyacentes (están a distancia 1)
      */
     private boolean sonAdyacentes(Ubicacion u1, Ubicacion u2) {
-        int dx = Math.abs(u1.getX() - u2.getX());
-        int dy = Math.abs(u1.getY() - u2.getY());
-
-        // Son adyacentes si están a distancia 1 en una dirección y 0 en la otra
-        return (dx == 1 && dy == 0) || (dx == 0 && dy == 1);
+        return u1.getX() == u2.getX() || u1.getY() == u2.getY();
     }
 
     /**
@@ -465,8 +505,10 @@ public class ACOAlgorithm {
                 huboEventos = true;
                 if (estaBloqueadoAhora) {
                     logger.info("Activado bloqueo en tiempo " + tiempoActual);
+                    debug("Activado bloqueo en tiempo: "+ tiempoActual);
                 } else {
                     logger.info("Desactivado bloqueo en tiempo " + tiempoActual);
+                    debug("Desactivado bloqueo en tiempo: "+ tiempoActual);
                 }
             }
         }
