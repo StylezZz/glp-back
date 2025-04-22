@@ -119,9 +119,9 @@ public class MapaController {
                 case "semanal":
                     // 2. Escenario de simulación semanal (7 días)
                     params = ACOParameters.getConfiguracionCalidad();
-                    params.setNumeroIteraciones(1000);  // Más iteraciones para mejor calidad
+                    params.setNumeroIteraciones(300);  // Más iteraciones para mejor calidad
                     // Configurar para que termine en tiempo adecuado (20-50 minutos)
-                    params.setTiempoAvanceSimulacion(30);  // 30 minutos por iteración
+                    params.setTiempoAvanceSimulacion(15);  // 30 minutos por iteración
 
                     // Si no se especifica un período, configurar 7 días por defecto
                     if (mapa.getFechaInicio() == null) {

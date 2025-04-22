@@ -102,17 +102,10 @@ public class DistanceCalculator {
     }
 
     /**
-     * Verifica si dos ubicaciones son adyacentes en la rejilla de la ciudad
-     * @param u1 Primera ubicación
-     * @param u2 Segunda ubicación
-     * @return true si son adyacentes, false en caso contrario
+     * Verifica si dos ubicaciones están en la misma fila o columna
+     * (pueden moverse una hacia la otra en línea recta sin cambiar dirección)
      */
-    public static boolean sonAdyacentes(Ubicacion u1, Ubicacion u2) {
-        int dx = Math.abs(u1.getX() - u2.getX());
-        int dy = Math.abs(u1.getY() - u2.getY());
-
-        // Son adyacentes si la distancia Manhattan es 1
-        // Es decir, si están a un paso horizontal o vertical
-        return (dx == 1 && dy == 0) || (dx == 0 && dy == 1);
+    private boolean estanEnMismaLineaRecta(Ubicacion u1, Ubicacion u2) {
+        return u1.getX() == u2.getX() || u1.getY() == u2.getY();
     }
 }

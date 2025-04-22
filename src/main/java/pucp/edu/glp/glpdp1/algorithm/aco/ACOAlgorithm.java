@@ -14,7 +14,6 @@ import pucp.edu.glp.glpdp1.domain.Mapa;
 import pucp.edu.glp.glpdp1.domain.Pedido;
 import pucp.edu.glp.glpdp1.domain.Rutas;
 import pucp.edu.glp.glpdp1.domain.Ubicacion;
-import pucp.edu.glp.glpdp1.domain.enums.Incidente;
 import pucp.edu.glp.glpdp1.domain.enums.TipoAlmacen;
 
 import java.time.LocalDateTime;
@@ -126,6 +125,12 @@ public class ACOAlgorithm {
     public List<Rutas> ejecutar() {
         logger.info("Iniciando algoritmo ACO con " + parameters.getNumeroIteraciones() + " iteraciones");
 
+        System.out.println(">>> INICIANDO ALGORITMO ACO");
+        System.out.println(">>> Parámetros: " + parameters.getNumeroHormigas() + " hormigas, " +
+                parameters.getNumeroIteraciones() + " iteraciones");
+        System.out.println(">>> Pedidos a procesar: " + mapa.getPedidos().size());
+        System.out.println(">>> Camiones disponibles: " + mapa.getFlota().size());
+
         // RF97: Detección de inconsistencias en datos
         if (detectarInconsistencias()) {
             logger.warning("Se detectaron inconsistencias en los datos de entrada");
@@ -136,6 +141,10 @@ public class ACOAlgorithm {
 
         // RF99: Ajuste dinámico de frecuencia de replanificación
         ajustarFrecuenciaReplanificacion();
+
+        // Añade estas variables para medir rendimiento
+        long tiempoInicio = System.currentTimeMillis();
+        int mejorPedidosAsignados = 0;
 
         while (iteracion < parameters.getNumeroIteraciones() && !estadoColapso) {
             // Verificar si toca replanificar
@@ -202,6 +211,47 @@ public class ACOAlgorithm {
                 if (calidad > mejorCalidadGlobal) {
                     mejorSolucionGlobal = solucion;
                     mejorCalidadGlobal = calidad;
+                }
+            }
+
+            if (iteracion % 10 == 0) { // Imprimir cada 10 iteraciones para no saturar la consola
+                long tiempoActualMs = System.currentTimeMillis();
+                long tiempoTranscurrido = tiempoActualMs - tiempoInicio;
+
+                // Calcular métricas para la mejor solución actual
+                int pedidosAsignados = mejorSolucionGlobal != null ?
+                        mejorSolucionGlobal.getNumeroPedidosAsignados() : 0;
+                int pedidosNoAsignados = mejorSolucionGlobal != null ?
+                        mejorSolucionGlobal.getPedidosNoAsignados().size() : 0;
+                double distanciaTotal = mejorSolucionGlobal != null ?
+                        mejorSolucionGlobal.getDistanciaTotal() : 0;
+                double consumoTotal = mejorSolucionGlobal != null ?
+                        mejorSolucionGlobal.getConsumoTotal() : 0;
+                int camionesUsados = mejorSolucionGlobal != null ?
+                        mejorSolucionGlobal.getAsignaciones().size() : 0;
+
+                // Actualizar el mejor número de pedidos asignados
+                if (pedidosAsignados > mejorPedidosAsignados) {
+                    mejorPedidosAsignados = pedidosAsignados;
+                }
+
+                // Imprimir métricas
+                System.out.println("\n=== Métricas de Avance - Iteración " + iteracion + " ===");
+                System.out.println("Tiempo transcurrido: " + formatearTiempo(tiempoTranscurrido));
+                System.out.println("Mejor calidad: " + String.format("%.6f", mejorCalidadGlobal));
+                System.out.println("Pedidos asignados: " + pedidosAsignados + "/" + mapa.getPedidos().size() +
+                        " (" + String.format("%.1f",
+                        (double)pedidosAsignados/mapa.getPedidos().size()*100) + "%)");
+                System.out.println("Pedidos no asignados: " + pedidosNoAsignados);
+                System.out.println("Camiones utilizados: " + camionesUsados + "/" + mapa.getFlota().size());
+                System.out.println("Distancia total: " + String.format("%.2f", distanciaTotal) + " km");
+                System.out.println("Consumo total: " + String.format("%.2f", consumoTotal) + " galones");
+                System.out.println("Iteraciones sin mejora: " + iterSinMejora);
+                System.out.println("Frecuencia replanificación: " + frecuenciaReplanificacion + " minutos");
+
+                // Si estamos simulando tiempo, mostrar también el tiempo simulado
+                if (mapa.getFechaInicio() != null) {
+                    System.out.println("Tiempo simulado: " + tiempoActual);
                 }
             }
 
@@ -290,7 +340,7 @@ public class ACOAlgorithm {
 
             // Verificar que los tramos sean adyacentes
             for (int i = 0; i < bloqueo.getTramos().size() - 1; i++) {
-                if (!sonAdyacentes(bloqueo.getTramos().get(i), bloqueo.getTramos().get(i + 1))) {
+                if (!estanEnMismaLineaRecta(bloqueo.getTramos().get(i), bloqueo.getTramos().get(i + 1))) {
                     errores.add("Bloqueo en " + bloqueo.getFechaInicio() + ": Tramos no adyacentes");
                     inconsistenciasDetectadas = true;
                 }
@@ -327,12 +377,8 @@ public class ACOAlgorithm {
     /**
      * Verifica si dos ubicaciones son adyacentes (están a distancia 1)
      */
-    private boolean sonAdyacentes(Ubicacion u1, Ubicacion u2) {
-        int dx = Math.abs(u1.getX() - u2.getX());
-        int dy = Math.abs(u1.getY() - u2.getY());
-
-        // Son adyacentes si están a distancia 1 en una dirección y 0 en la otra
-        return (dx == 1 && dy == 0) || (dx == 0 && dy == 1);
+    private boolean estanEnMismaLineaRecta(Ubicacion u1, Ubicacion u2) {
+        return u1.getX() == u2.getX() || u1.getY() == u2.getY();
     }
 
     /**
@@ -757,4 +803,13 @@ public class ACOAlgorithm {
 
         return listaRutas;
     }
+
+    private String formatearTiempo(long milisegundos) {
+        long segundos = milisegundos / 1000;
+        long minutos = segundos / 60;
+        segundos = segundos % 60;
+
+        return String.format("%d min %d seg", minutos, segundos);
+    }
 }
+
