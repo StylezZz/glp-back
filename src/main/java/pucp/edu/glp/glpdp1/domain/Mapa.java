@@ -117,15 +117,4 @@ public class Mapa {
             this.flota.add(camion);
         }
     }
-
-    private void cargarAverias(String filaName){
-        //Leer archivo
-
-    }
-
-    private void cargarPedidos(String rutaArchivoPedidos){
-
-
-    }
-
 }
