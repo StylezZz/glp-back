@@ -2,6 +2,7 @@ package pucp.edu.glp.glpdp1.domain;
 
 import lombok.Getter;
 import lombok.Setter;
+import pucp.edu.glp.glpdp1.domain.enums.EstadoCamion;
 import pucp.edu.glp.glpdp1.domain.enums.TipoCamion;
 
 @Getter @Setter
@@ -15,10 +16,16 @@ public class Camion {
     private double distanciaMaximaKm; // km
     private int galones;
     private boolean averiado;
+    private EstadoCamion estado;
 
 
     //peso bruto = peso del camion
     //carga = peso de la carga volumen
     //peso carga = lo que llevo
     //peso = peso del camion + peso de la carga
+
+    public boolean puedeCargar(double volumen){
+        double pesoCarga = volumen * pesoCargaTon;
+        return this.getPesoCombinadoTon() >= pesoCarga;
+    }
 }

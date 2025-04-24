@@ -14,6 +14,7 @@ import pucp.edu.glp.glpdp1.domain.Mapa;
 import pucp.edu.glp.glpdp1.domain.Pedido;
 import pucp.edu.glp.glpdp1.domain.Rutas;
 import pucp.edu.glp.glpdp1.domain.Ubicacion;
+import pucp.edu.glp.glpdp1.domain.enums.EstadoCamion;
 import pucp.edu.glp.glpdp1.domain.enums.Incidente;
 import pucp.edu.glp.glpdp1.domain.enums.TipoAlmacen;
 
@@ -174,6 +175,8 @@ public class ACOAlgorithm {
             // RF88: Verificar disponibilidad de combustible en tanques
             verificarDisponibilidadCombustible(tiempoActual);
 
+            actualizarEstadoCamiones(tiempoActual);
+
             // Actualizar heurística con información dinámica actual
             heuristicCalculator.actualizarHeuristicaDinamica(
                     mapa.getPedidos(),
@@ -185,6 +188,8 @@ public class ACOAlgorithm {
             // RF95: Priorización por nivel de combustible
             List<Camion> camionesPriorizados = priorizarCamionesPorCombustible();
 
+            camionesPriorizados = filtrarCamionesDisponibles(camionesPriorizados);
+
             // RF100: Gestión preventiva de inventario
             priorizarTanquesPorTiempoAgotamiento();
 
@@ -192,18 +197,21 @@ public class ACOAlgorithm {
             List<ACOSolution> soluciones = new ArrayList<>();
 
             for (int i = 0; i < parameters.getNumeroHormigas(); i++) {
+                List<Camion> camionesHormiga = new ArrayList<>(camionesPriorizados);
+                Map<TipoAlmacen,Double> capacidadTanquesHormiga = new HashMap<>(capacidadActualTanques);
+
                 // Construir solución con una hormiga
                 Ant hormiga = colony.getHormigas().get(i);
 
                 // RF85: Agrupamiento inteligente de entregas
                 ACOSolution solucion = hormiga.construirSolucion(
                         mapa.getPedidos(),
-                        camionesPriorizados,
+                        camionesHormiga,
                         pheromonesMatrix,
                         heuristicCalculator,
                         tiempoActual,
                         grafo,
-                        capacidadActualTanques
+                        capacidadTanquesHormiga
                 );
 
                 System.out.println("\n=== Hormiga #" + (i + 1) + "  - Iteración " + iteracion + " ===");
@@ -540,6 +548,34 @@ public class ACOAlgorithm {
 
         return huboEventos;
     }
+
+    /**
+     * Actualiza el estado de los camiones según mantenimiento o averías
+     */
+    private void actualizarEstadoCamiones(LocalDateTime tiempoActual) {
+        for(Camion camion: mapa.getFlota()){
+            if(estaEnMantenimientoPreventivo(camion,tiempoActual)){
+                camion.setEstado(EstadoCamion.MANTENIMIENTO);
+                logger.info("Camión "+ camion.getIdC() + " no disponible por mantenimiento preventivo");
+                continue;
+            }
+
+            if(camion.isAveriado()){
+                camion.setEstado(EstadoCamion.MANTENIMIENTO);
+                logger.info("Camión "+ camion.getIdC() + " no disponible por mantenimiento correctivo");
+                continue;
+            }
+
+            camion.setEstado(EstadoCamion.DISPONIBLE);
+        }
+    }
+
+    private List<Camion> filtrarCamionesDisponibles(List<Camion> camiones){
+        return camiones.stream()
+                .filter(camion -> camion.getEstado()==EstadoCamion.DISPONIBLE)
+                .collect(Collectors.toList());
+    }
+
 
     /**
      * Verifica si un bloqueo está activo en un momento determinado

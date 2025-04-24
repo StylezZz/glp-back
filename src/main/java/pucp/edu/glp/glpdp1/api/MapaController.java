@@ -97,11 +97,13 @@ public class MapaController {
             // Configurar fechas para simulación si se proporcionan
             if (fechaInicio != null && !fechaInicio.isEmpty()) {
                 LocalDateTime inicio = LocalDateTime.parse(fechaInicio);
+                System.out.println("Fecha de inicio: " + inicio);
                 mapa.setFechaInicio(inicio);
             }
 
             if (fechaFin != null && !fechaFin.isEmpty()) {
                 LocalDateTime fin = LocalDateTime.parse(fechaFin);
+                System.out.println("Fecha de fin: " + fin);
                 mapa.setFechaFin(fin);
             }
 
@@ -112,16 +114,16 @@ public class MapaController {
                 case "diario":
                     // 1. Escenario de operaciones día a día
                     params = ACOParameters.getConfiguracionEquilibrada();
-                    params.setNumeroIteraciones(300);  // Menos iteraciones para respuesta rápida
+                    params.setNumeroIteraciones(50);  // Menos iteraciones para respuesta rápida
                     break;
 
                 case "semana":
                 case "semanal":
                     // 2. Escenario de simulación semanal (7 días)
                     params = ACOParameters.getConfiguracionCalidad();
-                    params.setNumeroIteraciones(1000);  // Más iteraciones para mejor calidad
+                    params.setNumeroIteraciones(100);  // Más iteraciones para mejor calidad
                     // Configurar para que termine en tiempo adecuado (20-50 minutos)
-                    params.setTiempoAvanceSimulacion(30);  // 30 minutos por iteración
+                    params.setTiempoAvanceSimulacion(20);  // 30 minutos por iteración
 
                     // Si no se especifica un período, configurar 7 días por defecto
                     if (mapa.getFechaInicio() == null) {

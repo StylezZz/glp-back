@@ -13,15 +13,15 @@ import lombok.Setter;
 public class ACOParameters {
 
     // Parámetros básicos del algoritmo ACO
-    private int numeroHormigas = 30;
+    private int numeroHormigas = 50;
     private int numeroIteraciones = 500;
     private int maxIteracionesSinMejora = 50;
     private double umbralConvergenciaTemprana = 0.6;  // 60% del total de iteraciones
-    private double factorEvaporacion = 0.5;
+    private double factorEvaporacion = 0.3;
     private double alfa = 1.0;  // Importancia de las feromonas
     private double beta = 2.0;  // Importancia de la heurística
     private double q0 = 0.9;    // Parámetro de exploración vs explotación
-    private double feromonaInicial = 0.1;
+    private double feromonaInicial = 0.4;
 
     // Parámetros específicos del problema de distribución
     private int tiempoDescargaCliente = 15;       // Minutos para descarga en cliente
