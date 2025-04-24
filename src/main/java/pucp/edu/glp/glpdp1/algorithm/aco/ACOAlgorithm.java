@@ -25,8 +25,6 @@ import java.util.stream.Collectors;
 /**
  * Implementación del algoritmo de Colonia de Hormigas (ACO) para optimización de rutas
  * de distribución de GLP.
- *
- * Esta clase implementa los requisitos RF85-RF100 especificados en el proyecto.
  */
 @Getter
 @Setter
@@ -58,6 +56,7 @@ public class ACOAlgorithm {
 
     /**
      * Constructor principal del algoritmo
+     *
      * @param mapa Mapa con los datos de la ciudad, flota, pedidos, etc.
      */
     public ACOAlgorithm(Mapa mapa) {
@@ -68,13 +67,18 @@ public class ACOAlgorithm {
 
     /**
      * Constructor con parámetros personalizados
-     * @param mapa Mapa con los datos de la ciudad, flota, pedidos, etc.
+     *
+     * @param mapa       Mapa con los datos de la ciudad, flota, pedidos, etc.
      * @param parameters Parámetros personalizados del algoritmo
      */
     public ACOAlgorithm(Mapa mapa, ACOParameters parameters) {
         this.mapa = mapa;
         this.parameters = parameters;
         inicializarAlgoritmo();
+    }
+
+    private void debug(String mensaje) {
+        System.out.println("[ACO] " + mensaje);
     }
 
     /**
@@ -107,7 +111,6 @@ public class ACOAlgorithm {
 
     /**
      * Inicializa el estado de los tanques intermedios
-     * RF86, RF88, RF96: Control de tanques intermedios
      */
     private void inicializarEstadoTanques() {
         capacidadActualTanques = new HashMap<>();
@@ -118,18 +121,22 @@ public class ACOAlgorithm {
         }
     }
 
+    private void debugAsignacion(Camion camion, List<Pedido> pedidos) {
+        System.out.println("🛻 [" + camion.getIdC() + "] Asignado con " + pedidos.size() + " pedidos:");
+        for (Pedido p : pedidos) {
+            System.out.println("   📦 Pedido #" + p.getIdPedido() +
+                    " - Volumen: " + p.getVolumen() + "m³" +
+                    " - Destino: (" + p.getDestino().getX() + "," + p.getDestino().getY() + ")");
+        }
+    }
+
     /**
      * Método principal que ejecuta el algoritmo ACO
+     *
      * @return La mejor solución encontrada
      */
     public List<Rutas> ejecutar() {
         logger.info("Iniciando algoritmo ACO con " + parameters.getNumeroIteraciones() + " iteraciones");
-
-        System.out.println(">>> INICIANDO ALGORITMO ACO");
-        System.out.println(">>> Parámetros: " + parameters.getNumeroHormigas() + " hormigas, " +
-                parameters.getNumeroIteraciones() + " iteraciones");
-        System.out.println(">>> Pedidos a procesar: " + mapa.getPedidos().size());
-        System.out.println(">>> Camiones disponibles: " + mapa.getFlota().size());
 
         // RF97: Detección de inconsistencias en datos
         if (detectarInconsistencias()) {
@@ -178,10 +185,11 @@ public class ACOAlgorithm {
                     capacidadActualTanques
             );
 
-            // RF95: Priorización por nivel de combustible
             List<Camion> camionesPriorizados = priorizarCamionesPorCombustible();
+            // Para reporte de diagnóstico
+            int totalPedidosAsignados = 0;
+            int hormigasActivas = 0;
 
-            // RF100: Gestión preventiva de inventario
             priorizarTanquesPorTiempoAgotamiento();
 
             // Construcción de soluciones por cada hormiga
@@ -191,16 +199,42 @@ public class ACOAlgorithm {
                 // Construir solución con una hormiga
                 Ant hormiga = colony.getHormigas().get(i);
 
+                // Copia fresca para cada hormiga para evitar dañar el mismo recurso
+                List<Camion> camionesCopia = new ArrayList<>(camionesPriorizados);
+
                 // RF85: Agrupamiento inteligente de entregas
                 ACOSolution solucion = hormiga.construirSolucion(
-                        mapa.getPedidos(),
-                        camionesPriorizados,
+//                        mapa.getPedidos(),
+                        new ArrayList<>(mapa.getPedidos()),
+                        camionesCopia,
                         pheromonesMatrix,
                         heuristicCalculator,
                         tiempoActual,
                         grafo,
-                        capacidadActualTanques
+//                        capacidadActualTanques
+                        new HashMap<>(capacidadActualTanques)
                 );
+
+                // Diagnóstico
+                int pedidosAsignados = solucion.getNumeroPedidosAsignados();
+                if (pedidosAsignados > 0) {
+                    hormigasActivas++;
+                }
+                totalPedidosAsignados += pedidosAsignados;
+
+                System.out.println("\n=== Hormiga #" + (i + 1) + "  - Iteración " + iteracion + " ===");
+                if (solucion.getAsignaciones().isEmpty()) {
+                    System.out.println("⚠️ No se pudieron realizar asignaciones");
+                } else {
+                    for (CamionAsignacion asignacion : solucion.getAsignaciones()) {
+                        debugAsignacion(asignacion.getCamion(), asignacion.getPedidos());
+                    }
+                }
+
+                if (!solucion.getPedidosNoAsignados().isEmpty()) {
+                    System.out.println("❌ " + solucion.getPedidosNoAsignados().size() +
+                            " pedidos no pudieron asignarse");
+                }
 
                 // Evaluar calidad de la solución
                 double calidad = evaluarSolucion(solucion, tiempoActual);
@@ -211,47 +245,6 @@ public class ACOAlgorithm {
                 if (calidad > mejorCalidadGlobal) {
                     mejorSolucionGlobal = solucion;
                     mejorCalidadGlobal = calidad;
-                }
-            }
-
-            if (iteracion % 10 == 0) { // Imprimir cada 10 iteraciones para no saturar la consola
-                long tiempoActualMs = System.currentTimeMillis();
-                long tiempoTranscurrido = tiempoActualMs - tiempoInicio;
-
-                // Calcular métricas para la mejor solución actual
-                int pedidosAsignados = mejorSolucionGlobal != null ?
-                        mejorSolucionGlobal.getNumeroPedidosAsignados() : 0;
-                int pedidosNoAsignados = mejorSolucionGlobal != null ?
-                        mejorSolucionGlobal.getPedidosNoAsignados().size() : 0;
-                double distanciaTotal = mejorSolucionGlobal != null ?
-                        mejorSolucionGlobal.getDistanciaTotal() : 0;
-                double consumoTotal = mejorSolucionGlobal != null ?
-                        mejorSolucionGlobal.getConsumoTotal() : 0;
-                int camionesUsados = mejorSolucionGlobal != null ?
-                        mejorSolucionGlobal.getAsignaciones().size() : 0;
-
-                // Actualizar el mejor número de pedidos asignados
-                if (pedidosAsignados > mejorPedidosAsignados) {
-                    mejorPedidosAsignados = pedidosAsignados;
-                }
-
-                // Imprimir métricas
-                System.out.println("\n=== Métricas de Avance - Iteración " + iteracion + " ===");
-                System.out.println("Tiempo transcurrido: " + formatearTiempo(tiempoTranscurrido));
-                System.out.println("Mejor calidad: " + String.format("%.6f", mejorCalidadGlobal));
-                System.out.println("Pedidos asignados: " + pedidosAsignados + "/" + mapa.getPedidos().size() +
-                        " (" + String.format("%.1f",
-                        (double)pedidosAsignados/mapa.getPedidos().size()*100) + "%)");
-                System.out.println("Pedidos no asignados: " + pedidosNoAsignados);
-                System.out.println("Camiones utilizados: " + camionesUsados + "/" + mapa.getFlota().size());
-                System.out.println("Distancia total: " + String.format("%.2f", distanciaTotal) + " km");
-                System.out.println("Consumo total: " + String.format("%.2f", consumoTotal) + " galones");
-                System.out.println("Iteraciones sin mejora: " + iterSinMejora);
-                System.out.println("Frecuencia replanificación: " + frecuenciaReplanificacion + " minutos");
-
-                // Si estamos simulando tiempo, mostrar también el tiempo simulado
-                if (mapa.getFechaInicio() != null) {
-                    System.out.println("Tiempo simulado: " + tiempoActual);
                 }
             }
 
@@ -295,14 +288,37 @@ public class ACOAlgorithm {
             if (mapa.getFechaInicio() != null) {
                 tiempoActual = tiempoActual.plusMinutes(parameters.getTiempoAvanceSimulacion());
             }
+
+            // Imprimir diagnóstico
+            System.out.println("=== DIAGNÓSTICO ACO ===");
+            System.out.println("Hormigas activas: " + hormigasActivas + "/" + parameters.getNumeroHormigas());
+            System.out.println("Pedidos asignados total: " + totalPedidosAsignados);
+            System.out.println("Promedio pedidos por hormiga: " +
+                    (hormigasActivas > 0 ? totalPedidosAsignados/hormigasActivas : 0));
         }
 
         logger.info("Algoritmo ACO finalizado después de " + iteracion + " iteraciones");
+        // Mostrar la mejor solución encontrada
+        System.out.println("\n✅ MEJOR SOLUCIÓN ENCONTRADA (Calidad: " +
+                String.format("%.6f", mejorCalidadGlobal)  + ")");
+        if (mejorSolucionGlobal != null) {
+            System.out.println("Total asignaciones: " + mejorSolucionGlobal.getAsignaciones().size());
+            for (CamionAsignacion asignacion : mejorSolucionGlobal.getAsignaciones()) {
+                debugAsignacion(asignacion.getCamion(), asignacion.getPedidos());
+                // Mostramos también la ruta planificada
+                System.out.println(" - Ruta: " + asignacion.getRutas().stream());
+            }
+            if (!mejorSolucionGlobal.getPedidosNoAsignados().isEmpty()) {
+                System.out.println("❌ " + mejorSolucionGlobal.getPedidosNoAsignados().size() +
+                        " pedidos no pudieron asignarse");
+            }
+        }
         return convertirSolucionARutas(mejorSolucionGlobal);
     }
 
     /**
      * RF97: Detección de inconsistencias en los datos de entrada
+     *
      * @return true si se detectaron inconsistencias, false en caso contrario
      */
     private boolean detectarInconsistencias() {
@@ -340,7 +356,11 @@ public class ACOAlgorithm {
 
             // Verificar que los tramos sean adyacentes
             for (int i = 0; i < bloqueo.getTramos().size() - 1; i++) {
-                if (!estanEnMismaLineaRecta(bloqueo.getTramos().get(i), bloqueo.getTramos().get(i + 1))) {
+                if (!sonAdyacentes(bloqueo.getTramos().get(i), bloqueo.getTramos().get(i + 1))) {
+                    errores.add("Bloqueo en " + bloqueo.getFechaInicio());
+                    for (Ubicacion tramo : bloqueo.getTramos()) {
+                        errores.add("Tramo: " + tramo.getX() + "," + tramo.getY());
+                    }
                     errores.add("Bloqueo en " + bloqueo.getFechaInicio() + ": Tramos no adyacentes");
                     inconsistenciasDetectadas = true;
                 }
@@ -377,7 +397,7 @@ public class ACOAlgorithm {
     /**
      * Verifica si dos ubicaciones son adyacentes (están a distancia 1)
      */
-    private boolean estanEnMismaLineaRecta(Ubicacion u1, Ubicacion u2) {
+    private boolean sonAdyacentes(Ubicacion u1, Ubicacion u2) {
         return u1.getX() == u2.getX() || u1.getY() == u2.getY();
     }
 
@@ -498,6 +518,7 @@ public class ACOAlgorithm {
 
     /**
      * Actualiza eventos dinámicos como averías, bloqueos, etc.
+     *
      * @return true si hubo cambios en el estado del sistema
      */
     private boolean actualizarEventosDinamicos(LocalDateTime tiempoActual) {
@@ -511,8 +532,10 @@ public class ACOAlgorithm {
                 huboEventos = true;
                 if (estaBloqueadoAhora) {
                     logger.info("Activado bloqueo en tiempo " + tiempoActual);
+                    debug("Activado bloqueo en tiempo: " + tiempoActual);
                 } else {
                     logger.info("Desactivado bloqueo en tiempo " + tiempoActual);
+                    debug("Desactivado bloqueo en tiempo: " + tiempoActual);
                 }
             }
         }
@@ -812,4 +835,3 @@ public class ACOAlgorithm {
         return String.format("%d min %d seg", minutos, segundos);
     }
 }
-

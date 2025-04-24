@@ -42,7 +42,7 @@ public class Ant {
     public Ant(int id, ACOParameters parameters) {
         this.id = id;
         this.parameters = parameters;
-        this.random = new Random();
+        this.random = new Random(System.nanoTime() + id);
     }
 
     /**
@@ -185,7 +185,7 @@ public class Ant {
     }
 
     /**
-     * RF85: Implementa agrupamiento inteligente de pedidos por proximidad
+     * Implementa agrupamiento inteligente de pedidos por proximidad
      */
     private List<List<Pedido>> agruparPedidosPorProximidad(List<Pedido> pedidos) {
         List<List<Pedido>> grupos = new ArrayList<>();
@@ -200,8 +200,9 @@ public class Ant {
             List<Pedido> grupo = new ArrayList<>();
             grupo.add(semilla);
             pedidosAgrupados.add(semilla);
+            double volumenAcumulado = semilla.getVolumen();
 
-            // Buscar pedidos cercanos
+            // Buscar pedidos cercanos al pedido a analizar
             List<Pedido> pedidosCercanos = new ArrayList<>();
             for (Pedido p : pedidos) {
                 if (!pedidosAgrupados.contains(p) && p != semilla) {
@@ -221,12 +222,17 @@ public class Ant {
                 return Double.compare(d1, d2);
             });
 
+            double capacidadMaxima = 15.0;
+
             // Añadir hasta N pedidos más cercanos (o todos si hay menos)
             int maxAdicionales = Math.min(parameters.getMaxPedidosPorGrupo() - 1, pedidosCercanos.size());
             for (int i = 0; i < maxAdicionales; i++) {
                 Pedido pedidoCercano = pedidosCercanos.get(i);
-                grupo.add(pedidoCercano);
-                pedidosAgrupados.add(pedidoCercano);
+                if (volumenAcumulado + pedidoCercano.getVolumen() <= capacidadMaxima) {
+                    grupo.add(pedidoCercano);
+                    pedidosAgrupados.add(pedidoCercano);
+                    volumenAcumulado += pedidoCercano.getVolumen();
+                }
             }
 
             grupos.add(grupo);
@@ -456,9 +462,18 @@ public class Ant {
             HeuristicCalculator heuristica,
             GrafoRutas grafo) {
 
-        // Implementación de la regla de pseudoaleatorio proporcional
-        if (random.nextDouble() < parameters.getQ0()) {
+        // CORRECCIÓN: Añadir diversificación basada en ID de hormiga
+        double valorQ0 = parameters.getQ0();
+        // Para algunas hormigas, reducir q0 para forzar más exploración
+        if (id % 3 == 0) {
+            valorQ0 *= 0.7;  // 30% más exploración para cada tercera hormiga
+        }
+
+        if (random.nextDouble() < valorQ0) {
             // Explotación: elegir el mejor según feromonas y heurística
+
+            // CORRECCIÓN: Añadir un pequeño ruido aleatorio en la evaluación
+            // para romper empates de forma diferente para cada hormiga
             double mejorValor = Double.NEGATIVE_INFINITY;
             Pedido mejorPedido = null;
 
@@ -474,9 +489,12 @@ public class Ant {
                 double urgencia = UrgencyCalculator.calcularUrgenciaNormalizada(pedido);
                 double factorUrgencia = 1.0 + urgencia * parameters.getFactorPriorizacionUrgencia();
 
+                // CORRECCIÓN: Añadir ruido aleatorio para romper empates
+                double ruido = 1.0 + (random.nextDouble() * 0.1 - 0.05); // ±5% de variación
+
                 double valor = Math.pow(valorFeromona, parameters.getAlfa()) *
                         Math.pow(valorHeuristica, parameters.getBeta()) *
-                        factorUrgencia;
+                        factorUrgencia * ruido;
 
                 if (valor > mejorValor) {
                     mejorValor = valor;
@@ -484,7 +502,7 @@ public class Ant {
                 }
             }
 
-            return mejorPedido != null ? mejorPedido : pedidosRestantes.get(0);
+            return mejorPedido;
         } else {
             // Exploración: selección probabilística
             double total = 0;
@@ -510,19 +528,24 @@ public class Ant {
                 total += valor;
             }
 
+            // CORRECCIÓN: Verificar que total no sea cero para evitar división por cero
+            if (total <= 0) {
+                return pedidosRestantes.get(random.nextInt(pedidosRestantes.size()));
+            }
+
             // Selección por ruleta
             double seleccion = random.nextDouble() * total;
             double acumulado = 0;
 
-            for (Map.Entry<Pedido, Double> entrada : probabilidades.entrySet()) {
-                acumulado += entrada.getValue();
+            for (Map.Entry<Pedido, Double> entry : probabilidades.entrySet()) {
+                acumulado += entry.getValue();
                 if (acumulado >= seleccion) {
-                    return entrada.getKey();
+                    return entry.getKey();
                 }
             }
 
-            // Si por algún error numérico no se seleccionó ninguno, devolver el primero
-            return pedidosRestantes.get(0);
+            // En caso de error numérico, retornar un pedido aleatorio
+            return pedidosRestantes.get(random.nextInt(pedidosRestantes.size()));
         }
     }
 
