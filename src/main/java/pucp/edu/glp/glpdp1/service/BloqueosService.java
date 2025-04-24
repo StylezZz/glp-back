@@ -11,7 +11,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -78,18 +80,46 @@ public class BloqueosService {
 
             String coordenadas = partes[1];
             String[] coordenadasArray = coordenadas.split(",");
-            List<Ubicacion> tramos = new ArrayList<>();
-            for(int i=0;i<coordenadasArray.length;i+=2){
-                int x = Integer.parseInt(coordenadasArray[i].trim());
-                int y = Integer.parseInt(coordenadasArray[i+1].trim());
-                Ubicacion ubi = new Ubicacion(x,y);
+
+            List<Ubicacion> tramosCompletos = new ArrayList<>();
+            for(int i=0;i<coordenadasArray.length-2;i+=2){
+                int x1 = Integer.parseInt(coordenadasArray[i].trim());
+                int y1 = Integer.parseInt(coordenadasArray[i+1].trim());
+                int x2 = Integer.parseInt(coordenadasArray[i+2].trim());
+                int y2 = Integer.parseInt(coordenadasArray[i+3].trim());
+                List<Ubicacion> puntosSegmento = generarPuntosIntermedios(x1, y1, x2, y2);
                 // Agregar la ubicación a la lista de tramos
-                tramos.add(ubi);
+                tramosCompletos.addAll(puntosSegmento);
             }
-            return new Bloqueo(fechaInicio, fechaFinal, tramos);
+
+            Set<Ubicacion> ubicacionesUnicas = new LinkedHashSet<>(tramosCompletos);
+            List<Ubicacion> tramosFinales = new ArrayList<>(ubicacionesUnicas);
+            return new Bloqueo(fechaInicio, fechaFinal, tramosFinales);
         }
 
         return null;
+    }
+
+    private List<Ubicacion> generarPuntosIntermedios(int x1,int y1,int x2,int y2){
+        List<Ubicacion> puntos = new ArrayList<>();
+
+        if (y1 == y2) {
+            int inicio = Math.min(x1, x2);
+            int fin = Math.max(x1, x2);
+            for (int x = inicio; x <= fin; x++) {
+                puntos.add(new Ubicacion(x, y1));
+            }
+        }
+        // Si es una línea vertical
+        else if (x1 == x2) {
+            int inicio = Math.min(y1, y2);
+            int fin = Math.max(y1, y2);
+            for (int y = inicio; y <= fin; y++) {
+                puntos.add(new Ubicacion(x1, y));
+            }
+        }
+
+        return puntos;
     }
 
     public void cargarBloqueosFromFile(String filePath){

@@ -2,6 +2,7 @@ package pucp.edu.glp.glpdp1.domain;
 
 import lombok.Getter;
 import lombok.Setter;
+import pucp.edu.glp.glpdp1.domain.Rutas;
 import pucp.edu.glp.glpdp1.domain.enums.TipoAlmacen;
 import pucp.edu.glp.glpdp1.domain.enums.TipoCamion;
 
@@ -19,6 +20,7 @@ public class Mapa {
     private List<Bloqueo> bloqueos;
     private List<Almacen> almacenes;
     private List<Averia> averias;
+    private List<Rutas> rutas;
     // Por el momento
     private LocalDateTime fechaInicio;
     private LocalDateTime fechaFin;
