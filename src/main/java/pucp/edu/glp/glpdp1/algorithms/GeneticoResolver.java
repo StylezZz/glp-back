@@ -47,7 +47,7 @@ public class GeneticoResolver {
         GA ga = new GA(mapa, 100, 500, 0.8, 0.1, 0.1);
         GA.Individual best = ga.run();
 
-        // 5) (Opcional) imprimir en consola
+        // 5)   imprimir en consola
         ga.printSolution(best);
 
         // 6) Devolver la mejor solución

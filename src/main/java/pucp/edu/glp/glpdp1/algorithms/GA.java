@@ -13,16 +13,22 @@ import pucp.edu.glp.glpdp1.domain.Pedido;
 import pucp.edu.glp.glpdp1.domain.Rutas;
 import pucp.edu.glp.glpdp1.domain.Ubicacion;
 
+/**
+ * Clase que implementa el algoritmo genético para asignación de pedidos a camiones
+ * minimizando la distancia total recorrida.
+ * Se trabaja sobre una lista de pedidos y flota de camiones almacenada en el Mapa.
+ */
 public class GA {
-    private final Mapa mapa;
-    private final int populationSize;
-    private final int maxGenerations;
-    private final double crossoverRate;
-    private final double mutationRate;
-    private final double elitismRate;
-    private final Random random;
+    private final Mapa mapa;                        /** Información del entorno (pedidos, camiones, almacenes) */
+    private final int populationSize;               /** Tamaño de la población por generación */
+    private final int maxGenerations;               /** Máximo número de generaciones */
+    private final double crossoverRate;             /** Probabilidad de cruce entre padres */
+    private final double mutationRate;              /** Probabilidad de mutación de un hijo */
+    private final double elitismRate;               /** Porcentaje de individuos que pasan directo a la siguiente generación */
+    private final Random random;                    /** Para generar números aleatorios */
     private List<Individual> population;
 
+    /** Constructor */
     public GA(Mapa mapa,
               int populationSize,
               int maxGenerations,
@@ -37,45 +43,50 @@ public class GA {
         this.elitismRate = elitismRate;
         this.random = new Random();
     }
-
+    /**
+     * Ejecuta el algoritmo genético completo: inicializa, evoluciona y retorna el mejor individuo.
+     */
     public Individual run() {
-        initializePopulation();
+        initializePopulation();                                 // Crea y evalúa la población inicial
         Individual best = getBestIndividual(population);
         int stagnationCount = 0;
 
         for (int gen = 0; gen < maxGenerations; gen++) {
+            // Aplica elitismo, selección, cruce, mutación y evaluación
             List<Individual> next = new ArrayList<>();
             int eliteCount = (int)(elitismRate * populationSize);
-            Collections.sort(population, Comparator.comparingDouble(i -> i.fitness));
 
-            // preserve elite
+            // Ordenar por fitness y preservar la élite
+            Collections.sort(population, Comparator.comparingDouble(i -> i.fitness));
             for (int i = 0; i < eliteCount; i++) {
                 next.add(population.get(i).copy());
             }
 
-            // generate offspring
+            // Generar el resto de la población
             while (next.size() < populationSize) {
-                Individual p1 = tournamentSelection();
+                Individual p1 = tournamentSelection();                  // Selección por torneo
                 Individual p2 = tournamentSelection();
                 List<Individual> offspring;
 
                 if (random.nextDouble() < crossoverRate) {
-                    offspring = orderedCrossover(p1, p2);
+                offspring = orderedCrossover(p1, p2);                   // Cruce
                 } else {
-                    offspring = Arrays.asList(p1.copy(), p2.copy());
+                    offspring = Arrays.asList(p1.copy(), p2.copy());    // Copia directa si no hay cruce
                 }
 
+                // Mutación y evaluación
                 for (Individual c : offspring) {
-                    c.evaluate();
+                    c.evaluate();                                   // Evaluación obligatoria
                     if (random.nextDouble() < mutationRate) {
-                        c.mutate();
-                        c.evaluate();
+                        c.mutate();     // Mutación
+                        c.evaluate();   // Reevaluación tras mutación
                     }
                     next.add(c);
                     if (next.size() >= populationSize) break;
                 }
             }
 
+            // Verificar si hay mejora
             population = next;
             Individual genBest = getBestIndividual(population);
             if (genBest.fitness < best.fitness) {
@@ -84,22 +95,25 @@ public class GA {
             } else {
                 stagnationCount++;
             }
+            // Si no mejora tras 50 generaciones, se detiene
             if (stagnationCount >= 50) break;
         }
 
         return best;
     }
-
+    /**
+     * Crea la población inicial con permutaciones aleatorias de pedidos y los evalúa.
+     */
     private void initializePopulation() {
         population = new ArrayList<>();
         int n = mapa.getPedidos().size();
         for (int i = 0; i < populationSize; i++) {
             Individual ind = new Individual(n);
-            ind.evaluate();
+            ind.evaluate();             // Calcula fitness de entrada
             population.add(ind);
         }
     }
-
+    // Selecciona al mejor de 3 individuos aleatorios (menor fitness)
     private Individual tournamentSelection() {
         Individual best = null;
         for (int i = 0; i < 3; i++) {
@@ -108,10 +122,11 @@ public class GA {
                 best = cand;
             }
         }
-        return best.copy();
+        return best.copy();     // Se devuelve una copia para evitar modificar el original
     }
 
     private List<Individual> orderedCrossover(Individual p1, Individual p2) {
+        // Combina genes de dos padres sin repetir pedidos
         int n = p1.genes.length;
         Individual c1 = p1.copy();
         Individual c2 = p2.copy();
@@ -148,6 +163,7 @@ public class GA {
     }
 
     private Individual getBestIndividual(List<Individual> pop) {
+        // Retorna el individuo con menor fitness (menor distancia)
         Individual best = pop.get(0);
         for (Individual ind : pop) {
             if (ind.fitness < best.fitness) best = ind;
@@ -155,25 +171,62 @@ public class GA {
         return best;
     }
 
-    /** Imprime en consola la ruta sin NPE */
     public void printSolution(Individual ind) {
         if (ind.getRutas() == null) {
             ind.evaluate();
         }
+
+        Ubicacion origen = mapa.getAlmacenes().get(0).getUbicacion();
+
         for (Rutas ruta : ind.getRutas()) {
             System.out.println("Camión " + ruta.getCamion().getIdC()
                     + " -> Distancia: " + ruta.getDistanciaTotal()
                     + ", Paradas: " + ruta.getUbicaciones().size());
+
+            Ubicacion anterior = origen;
+
+            for (Ubicacion u : ruta.getUbicaciones()) {
+                List<Ubicacion> pasos = trazarRuta(anterior, u);
+
+                for (Ubicacion paso : pasos) {
+                    System.out.println("      → Paso por: (" + paso.getX() + "," + paso.getY() + ")");
+                }
+
+                System.out.println("   📦 Entrega en: (" + u.getX() + "," + u.getY() + ")");
+                anterior = u;
+            }
         }
     }
 
+
+    // Genera pasos intermedios entre dos ubicaciones (ruta Manhattan)
+    private List<Ubicacion> trazarRuta(Ubicacion origen, Ubicacion destino) {
+        List<Ubicacion> pasos = new ArrayList<>();
+        int x = origen.getX();
+        int y = origen.getY();
+
+        while (x != destino.getX()) {
+            x += (destino.getX() > x) ? 1 : -1;
+            pasos.add(new Ubicacion(x, y));
+        }
+        while (y != destino.getY()) {
+            y += (destino.getY() > y) ? 1 : -1;
+            pasos.add(new Ubicacion(x, y));
+        }
+
+        return pasos;
+    }
+
+
+    // Un Individual representa una solución posible: una forma de distribuir los pedidos entre los camiones.
     public class Individual {
-        private int[] genes;
-        private double fitness;
-        private List<Rutas> rutas;
+        private int[] genes;                            // Permutación de pedidos
+        private double fitness;                         // Distancia total de todas las rutas
+        private List<Rutas> rutas;                      // Lista de rutas generadas para la solución
         private final Random random = new Random();
 
         public Individual(int n) {
+            // Crea un individuo con pedidos en orden aleatorio
             genes = new int[n];
             for (int i = 0; i < n; i++) genes[i] = i;
             shuffleGenes();
@@ -195,12 +248,15 @@ public class GA {
         }
 
         public void mutate() {
+            // Intercambia dos pedidos para alterar ligeramente la solución
             int i = random.nextInt(genes.length);
             int j = random.nextInt(genes.length);
             int tmp = genes[i]; genes[i] = genes[j]; genes[j] = tmp;
         }
 
         public void evaluate() {
+            // Intenta asignar los pedidos respetando restricciones de volumen y fecha
+            // Si no se puede asignar un pedido, penaliza con fitness infinito
             Mapa mapa = GA.this.mapa;
             int tcount = mapa.getFlota().size();
             rutas = new ArrayList<>();
@@ -242,6 +298,7 @@ public class GA {
         }
 
         private boolean canPlace(Pedido p, Rutas r, List<Pedido> ld, LocalDateTime start) {
+            // Verifica si un camión puede tomar un pedido según volumen y fecha
             double vol = 0;
             for (Pedido x : ld) vol += x.getVolumen();
             if (vol + p.getVolumen() > r.getCamion().getCargaM3()) {
@@ -276,6 +333,7 @@ public class GA {
             r.setDistanciaTotal(r.getDistanciaTotal() + dist);
             r.setTiempoTotal(r.getTiempoTotal() + dist / 50.0 + 0.25);
             ld.add(p);
+
         }
 
         public double getDistance() {
