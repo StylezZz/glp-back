@@ -14,6 +14,8 @@ import pucp.edu.glp.glpdp1.domain.Mapa;
 import pucp.edu.glp.glpdp1.domain.Pedido;
 import pucp.edu.glp.glpdp1.domain.Rutas;
 import pucp.edu.glp.glpdp1.domain.Ubicacion;
+import pucp.edu.glp.glpdp1.domain.enums.EstadoCamion;
+import pucp.edu.glp.glpdp1.domain.enums.Incidente;
 import pucp.edu.glp.glpdp1.domain.enums.TipoAlmacen;
 
 import java.time.LocalDateTime;
@@ -25,6 +27,8 @@ import java.util.stream.Collectors;
 /**
  * Implementación del algoritmo de Colonia de Hormigas (ACO) para optimización de rutas
  * de distribución de GLP.
+ *
+ * Esta clase implementa los requisitos RF85-RF100 especificados en el proyecto.
  */
 @Getter
 @Setter
@@ -56,7 +60,6 @@ public class ACOAlgorithm {
 
     /**
      * Constructor principal del algoritmo
-     *
      * @param mapa Mapa con los datos de la ciudad, flota, pedidos, etc.
      */
     public ACOAlgorithm(Mapa mapa) {
@@ -67,8 +70,7 @@ public class ACOAlgorithm {
 
     /**
      * Constructor con parámetros personalizados
-     *
-     * @param mapa       Mapa con los datos de la ciudad, flota, pedidos, etc.
+     * @param mapa Mapa con los datos de la ciudad, flota, pedidos, etc.
      * @param parameters Parámetros personalizados del algoritmo
      */
     public ACOAlgorithm(Mapa mapa, ACOParameters parameters) {
@@ -77,8 +79,8 @@ public class ACOAlgorithm {
         inicializarAlgoritmo();
     }
 
-    private void debug(String mensaje) {
-        System.out.println("[ACO] " + mensaje);
+    private void debug(String mensaje){
+        System.out.println("[ACO] "+ mensaje);
     }
 
     /**
@@ -111,6 +113,7 @@ public class ACOAlgorithm {
 
     /**
      * Inicializa el estado de los tanques intermedios
+     * RF86, RF88, RF96: Control de tanques intermedios
      */
     private void inicializarEstadoTanques() {
         capacidadActualTanques = new HashMap<>();
@@ -121,9 +124,9 @@ public class ACOAlgorithm {
         }
     }
 
-    private void debugAsignacion(Camion camion, List<Pedido> pedidos) {
-        System.out.println("🛻 [" + camion.getIdC() + "] Asignado con " + pedidos.size() + " pedidos:");
-        for (Pedido p : pedidos) {
+    private void debugAsignacion(Camion camion,List<Pedido> pedidos){
+        System.out.println("🛻 ["+camion.getIdC()+"] Asignado con " + pedidos.size() + " pedidos:");
+        for(Pedido p: pedidos){
             System.out.println("   📦 Pedido #" + p.getIdPedido() +
                     " - Volumen: " + p.getVolumen() + "m³" +
                     " - Destino: (" + p.getDestino().getX() + "," + p.getDestino().getY() + ")");
@@ -132,7 +135,6 @@ public class ACOAlgorithm {
 
     /**
      * Método principal que ejecuta el algoritmo ACO
-     *
      * @return La mejor solución encontrada
      */
     public List<Rutas> ejecutar() {
@@ -148,10 +150,6 @@ public class ACOAlgorithm {
 
         // RF99: Ajuste dinámico de frecuencia de replanificación
         ajustarFrecuenciaReplanificacion();
-
-        // Añade estas variables para medir rendimiento
-        long tiempoInicio = System.currentTimeMillis();
-        int mejorPedidosAsignados = 0;
 
         while (iteracion < parameters.getNumeroIteraciones() && !estadoColapso) {
             // Verificar si toca replanificar
@@ -177,6 +175,8 @@ public class ACOAlgorithm {
             // RF88: Verificar disponibilidad de combustible en tanques
             verificarDisponibilidadCombustible(tiempoActual);
 
+            actualizarEstadoCamiones(tiempoActual);
+
             // Actualizar heurística con información dinámica actual
             heuristicCalculator.actualizarHeuristicaDinamica(
                     mapa.getPedidos(),
@@ -185,53 +185,45 @@ public class ACOAlgorithm {
                     capacidadActualTanques
             );
 
+            // RF95: Priorización por nivel de combustible
             List<Camion> camionesPriorizados = priorizarCamionesPorCombustible();
-            // Para reporte de diagnóstico
-            int totalPedidosAsignados = 0;
-            int hormigasActivas = 0;
 
+            camionesPriorizados = filtrarCamionesDisponibles(camionesPriorizados);
+
+            // RF100: Gestión preventiva de inventario
             priorizarTanquesPorTiempoAgotamiento();
 
             // Construcción de soluciones por cada hormiga
             List<ACOSolution> soluciones = new ArrayList<>();
 
             for (int i = 0; i < parameters.getNumeroHormigas(); i++) {
+                List<Camion> camionesHormiga = new ArrayList<>(camionesPriorizados);
+                Map<TipoAlmacen,Double> capacidadTanquesHormiga = new HashMap<>(capacidadActualTanques);
+
                 // Construir solución con una hormiga
                 Ant hormiga = colony.getHormigas().get(i);
 
-                // Copia fresca para cada hormiga para evitar dañar el mismo recurso
-                List<Camion> camionesCopia = new ArrayList<>(camionesPriorizados);
-
                 // RF85: Agrupamiento inteligente de entregas
                 ACOSolution solucion = hormiga.construirSolucion(
-//                        mapa.getPedidos(),
-                        new ArrayList<>(mapa.getPedidos()),
-                        camionesCopia,
+                        mapa.getPedidos(),
+                        camionesHormiga,
                         pheromonesMatrix,
                         heuristicCalculator,
                         tiempoActual,
                         grafo,
-//                        capacidadActualTanques
-                        new HashMap<>(capacidadActualTanques)
+                        capacidadTanquesHormiga
                 );
 
-                // Diagnóstico
-                int pedidosAsignados = solucion.getNumeroPedidosAsignados();
-                if (pedidosAsignados > 0) {
-                    hormigasActivas++;
-                }
-                totalPedidosAsignados += pedidosAsignados;
-
                 System.out.println("\n=== Hormiga #" + (i + 1) + "  - Iteración " + iteracion + " ===");
-                if (solucion.getAsignaciones().isEmpty()) {
+                if(solucion.getAsignaciones().isEmpty()){
                     System.out.println("⚠️ No se pudieron realizar asignaciones");
-                } else {
-                    for (CamionAsignacion asignacion : solucion.getAsignaciones()) {
+                }else{
+                    for(CamionAsignacion asignacion: solucion.getAsignaciones()){
                         debugAsignacion(asignacion.getCamion(), asignacion.getPedidos());
                     }
                 }
 
-                if (!solucion.getPedidosNoAsignados().isEmpty()) {
+                if(!solucion.getPedidosNoAsignados().isEmpty()){
                     System.out.println("❌ " + solucion.getPedidosNoAsignados().size() +
                             " pedidos no pudieron asignarse");
                 }
@@ -288,25 +280,16 @@ public class ACOAlgorithm {
             if (mapa.getFechaInicio() != null) {
                 tiempoActual = tiempoActual.plusMinutes(parameters.getTiempoAvanceSimulacion());
             }
-
-            // Imprimir diagnóstico
-            System.out.println("=== DIAGNÓSTICO ACO ===");
-            System.out.println("Hormigas activas: " + hormigasActivas + "/" + parameters.getNumeroHormigas());
-            System.out.println("Pedidos asignados total: " + totalPedidosAsignados);
-            System.out.println("Promedio pedidos por hormiga: " +
-                    (hormigasActivas > 0 ? totalPedidosAsignados/hormigasActivas : 0));
         }
 
         logger.info("Algoritmo ACO finalizado después de " + iteracion + " iteraciones");
         // Mostrar la mejor solución encontrada
         System.out.println("\n✅ MEJOR SOLUCIÓN ENCONTRADA (Calidad: " +
-                String.format("%.6f", mejorCalidadGlobal)  + ")");
+                String.format("%.6f", mejorCalidadGlobal) + ")");
         if (mejorSolucionGlobal != null) {
             System.out.println("Total asignaciones: " + mejorSolucionGlobal.getAsignaciones().size());
             for (CamionAsignacion asignacion : mejorSolucionGlobal.getAsignaciones()) {
                 debugAsignacion(asignacion.getCamion(), asignacion.getPedidos());
-                // Mostramos también la ruta planificada
-                System.out.println(" - Ruta: " + asignacion.getRutas().stream());
             }
             if (!mejorSolucionGlobal.getPedidosNoAsignados().isEmpty()) {
                 System.out.println("❌ " + mejorSolucionGlobal.getPedidosNoAsignados().size() +
@@ -318,7 +301,6 @@ public class ACOAlgorithm {
 
     /**
      * RF97: Detección de inconsistencias en los datos de entrada
-     *
      * @return true si se detectaron inconsistencias, false en caso contrario
      */
     private boolean detectarInconsistencias() {
@@ -358,7 +340,7 @@ public class ACOAlgorithm {
             for (int i = 0; i < bloqueo.getTramos().size() - 1; i++) {
                 if (!sonAdyacentes(bloqueo.getTramos().get(i), bloqueo.getTramos().get(i + 1))) {
                     errores.add("Bloqueo en " + bloqueo.getFechaInicio());
-                    for (Ubicacion tramo : bloqueo.getTramos()) {
+                    for(Ubicacion tramo : bloqueo.getTramos()){
                         errores.add("Tramo: " + tramo.getX() + "," + tramo.getY());
                     }
                     errores.add("Bloqueo en " + bloqueo.getFechaInicio() + ": Tramos no adyacentes");
@@ -518,7 +500,6 @@ public class ACOAlgorithm {
 
     /**
      * Actualiza eventos dinámicos como averías, bloqueos, etc.
-     *
      * @return true si hubo cambios en el estado del sistema
      */
     private boolean actualizarEventosDinamicos(LocalDateTime tiempoActual) {
@@ -532,10 +513,10 @@ public class ACOAlgorithm {
                 huboEventos = true;
                 if (estaBloqueadoAhora) {
                     logger.info("Activado bloqueo en tiempo " + tiempoActual);
-                    debug("Activado bloqueo en tiempo: " + tiempoActual);
+                    debug("Activado bloqueo en tiempo: "+ tiempoActual);
                 } else {
                     logger.info("Desactivado bloqueo en tiempo " + tiempoActual);
-                    debug("Desactivado bloqueo en tiempo: " + tiempoActual);
+                    debug("Desactivado bloqueo en tiempo: "+ tiempoActual);
                 }
             }
         }
@@ -567,6 +548,34 @@ public class ACOAlgorithm {
 
         return huboEventos;
     }
+
+    /**
+     * Actualiza el estado de los camiones según mantenimiento o averías
+     */
+    private void actualizarEstadoCamiones(LocalDateTime tiempoActual) {
+        for(Camion camion: mapa.getFlota()){
+            if(estaEnMantenimientoPreventivo(camion,tiempoActual)){
+                camion.setEstado(EstadoCamion.MANTENIMIENTO);
+                logger.info("Camión "+ camion.getIdC() + " no disponible por mantenimiento preventivo");
+                continue;
+            }
+
+            if(camion.isAveriado()){
+                camion.setEstado(EstadoCamion.MANTENIMIENTO);
+                logger.info("Camión "+ camion.getIdC() + " no disponible por mantenimiento correctivo");
+                continue;
+            }
+
+            camion.setEstado(EstadoCamion.DISPONIBLE);
+        }
+    }
+
+    private List<Camion> filtrarCamionesDisponibles(List<Camion> camiones){
+        return camiones.stream()
+                .filter(camion -> camion.getEstado()==EstadoCamion.DISPONIBLE)
+                .collect(Collectors.toList());
+    }
+
 
     /**
      * Verifica si un bloqueo está activo en un momento determinado
@@ -825,13 +834,5 @@ public class ACOAlgorithm {
         }
 
         return listaRutas;
-    }
-
-    private String formatearTiempo(long milisegundos) {
-        long segundos = milisegundos / 1000;
-        long minutos = segundos / 60;
-        segundos = segundos % 60;
-
-        return String.format("%d min %d seg", minutos, segundos);
     }
 }
