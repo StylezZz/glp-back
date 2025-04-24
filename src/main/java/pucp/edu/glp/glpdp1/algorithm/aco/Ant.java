@@ -43,6 +43,7 @@ public class Ant {
         this.id = id;
         this.parameters = parameters;
         this.random = new Random();
+        this.random= new Random(System.nanoTime() + id * 1000);
     }
 
     /**
@@ -61,8 +62,18 @@ public class Ant {
         // Crear solución vacía
         ACOSolution solucion = new ACOSolution();
 
+        Collections.shuffle(pedidos,random);
+
+        Collections.shuffle(camionesDisponibles,random);
+
+        // IMPORTANTE: Hacer copia de los camiones disponibles para esta hormiga
+        List<Camion> camionesDisponiblesHormiga = new ArrayList<>(camionesDisponibles);
+
         // Hacer copia de los pedidos para no modificar la lista original
         List<Pedido> pedidosPendientes = new ArrayList<>(pedidos);
+
+        // Copia de capacidad de tanques para esta hormiga
+        Map<TipoAlmacen,Double> capacidadTanquesHormiga = new HashMap<>(capacidadTanques);
 
         // RF85: Agrupar pedidos por proximidad
         List<List<Pedido>> gruposPedidos = agruparPedidosPorProximidad(pedidosPendientes);
@@ -83,7 +94,7 @@ public class Ant {
         // Asignar grupos a camiones
         for (List<Pedido> grupo : gruposPedidos) {
             // Si no quedan camiones disponibles, los pedidos quedan sin asignar
-            if (camionesDisponibles.isEmpty()) {
+            if (capacidadTanquesHormiga.isEmpty()) {
                 for (Pedido p : grupo) {
                     solucion.addPedidoNoAsignado(p);
                 }
@@ -99,7 +110,7 @@ public class Ant {
             Camion mejorCamion = null;
             double mejorRatio = Double.MAX_VALUE;
 
-            for (Camion camion : camionesDisponibles) {
+            for (Camion camion : camionesDisponiblesHormiga) {
                 // Si la capacidad del camión es suficiente y mejor ajustada
                 if (camion.getCargaM3() >= volumenTotal) {
                     // Calcular qué tan bien se ajusta (menor es mejor)
@@ -123,7 +134,7 @@ public class Ant {
                 grupo.sort(Comparator.comparingDouble(Pedido::getVolumen));
 
                 // Buscar el camión con mayor capacidad disponible
-                Camion camionMayorCapacidad = camionesDisponibles.stream()
+                Camion camionMayorCapacidad = camionesDisponiblesHormiga.stream()
                         .max(Comparator.comparingDouble(Camion::getCargaM3))
                         .orElse(null);
 
@@ -151,11 +162,11 @@ public class Ant {
                                 heuristica,
                                 tiempoActual,
                                 grafo,
-                                capacidadTanques
+                                capacidadTanquesHormiga
                         );
 
                         // Remover este camión de disponibles
-                        camionesDisponibles.remove(camionMayorCapacidad);
+                        camionesDisponiblesHormiga.remove(camionMayorCapacidad);
                     }
                 } else {
                     // Si no hay camiones disponibles para dividir, todos los pedidos quedan sin asignar
@@ -173,11 +184,11 @@ public class Ant {
                         heuristica,
                         tiempoActual,
                         grafo,
-                        capacidadTanques
+                        capacidadTanquesHormiga
                 );
 
                 // Remover este camión de disponibles
-                camionesDisponibles.remove(mejorCamion);
+                camionesDisponiblesHormiga.remove(mejorCamion);
             }
         }
 
@@ -191,6 +202,8 @@ public class Ant {
         List<List<Pedido>> grupos = new ArrayList<>();
         Set<Pedido> pedidosAgrupados = new HashSet<>();
 
+        double umbralAjustado = parameters.getUmbralDistanciaPedidosCercanos()*(0.9+0.2*random.nextDouble());
+
         for (Pedido semilla : pedidos) {
             if (pedidosAgrupados.contains(semilla)) {
                 continue;
@@ -201,6 +214,8 @@ public class Ant {
             grupo.add(semilla);
             pedidosAgrupados.add(semilla);
 
+            double volumenAcumulado = semilla.getVolumen();
+
             // Buscar pedidos cercanos
             List<Pedido> pedidosCercanos = new ArrayList<>();
             for (Pedido p : pedidos) {
@@ -208,7 +223,7 @@ public class Ant {
                     double distancia = DistanceCalculator.calcularDistanciaManhattan(
                             semilla.getDestino(), p.getDestino());
 
-                    if (distancia < parameters.getUmbralDistanciaPedidosCercanos()) {
+                    if (distancia < umbralAjustado) {
                         pedidosCercanos.add(p);
                     }
                 }
@@ -221,14 +236,20 @@ public class Ant {
                 return Double.compare(d1, d2);
             });
 
+            double capacidadMaxima = 15.0;
+
+
+
             // Añadir hasta N pedidos más cercanos (o todos si hay menos)
             int maxAdicionales = Math.min(parameters.getMaxPedidosPorGrupo() - 1, pedidosCercanos.size());
             for (int i = 0; i < maxAdicionales; i++) {
                 Pedido pedidoCercano = pedidosCercanos.get(i);
-                grupo.add(pedidoCercano);
-                pedidosAgrupados.add(pedidoCercano);
+                if(volumenAcumulado + pedidoCercano.getVolumen() <= capacidadMaxima){
+                    grupo.add(pedidoCercano);
+                    pedidosAgrupados.add(pedidoCercano);
+                    volumenAcumulado += pedidoCercano.getVolumen();
+                }
             }
-
             grupos.add(grupo);
         }
 
@@ -246,7 +267,7 @@ public class Ant {
             HeuristicCalculator heuristica,
             LocalDateTime tiempoActual,
             GrafoRutas grafo,
-            Map<TipoAlmacen, Double> capacidadTanques) {
+            Map<TipoAlmacen, Double> capacidadTanquesHormiga) {
 
         // Crear asignación para este camión
         CamionAsignacion asignacion = new CamionAsignacion(camion, pedidos);
@@ -303,7 +324,7 @@ public class Ant {
                         nodoActual.getUbicacion(),
                         ubicacionSiguiente,
                         grafo,
-                        capacidadTanques
+                        capacidadTanquesHormiga
                 );
 
                 // Construir ruta hasta tanque
@@ -338,14 +359,14 @@ public class Ant {
 
                 // Descontar del tanque intermedio si no es central
                 if (tipoTanque != TipoAlmacen.CENTRAL) {
-                    double volumenActual = capacidadTanques.get(tipoTanque);
+                    double volumenActual = capacidadTanquesHormiga.get(tipoTanque);
                     double volumenConsumido = calcularVolumenReabastecimiento(camion);
 
                     if (volumenActual >= volumenConsumido) {
-                        capacidadTanques.put(tipoTanque, volumenActual - volumenConsumido);
+                        capacidadTanquesHormiga.put(tipoTanque, volumenActual - volumenConsumido);
                     } else {
                         // Si no hay suficiente capacidad, usar lo que queda
-                        capacidadTanques.put(tipoTanque, 0.0);
+                        capacidadTanquesHormiga.put(tipoTanque, 0.0);
                     }
                 }
             }
@@ -456,8 +477,14 @@ public class Ant {
             HeuristicCalculator heuristica,
             GrafoRutas grafo) {
 
+        double q0Efectivo = Math.max(0.1, parameters.getQ0()*(0.8+0.4*random.nextDouble()));
+
+        if(random.nextDouble()<0.05){
+            return pedidosRestantes.get(random.nextInt(pedidosRestantes.size()));
+        }
+
         // Implementación de la regla de pseudoaleatorio proporcional
-        if (random.nextDouble() < parameters.getQ0()) {
+        if (random.nextDouble() < q0Efectivo) {
             // Explotación: elegir el mejor según feromonas y heurística
             double mejorValor = Double.NEGATIVE_INFINITY;
             Pedido mejorPedido = null;
@@ -469,6 +496,8 @@ public class Ant {
 
                 double valorFeromona = feromonas.getValor(idNodoActual, idNodoPedido);
                 double valorHeuristica = heuristica.getValorHeuristica(idNodoActual, idNodoPedido);
+
+                double ruido = 1.0 + (random.nextDouble()-0.5);
 
                 // Ajustar por urgencia
                 double urgencia = UrgencyCalculator.calcularUrgenciaNormalizada(pedido);
@@ -498,6 +527,8 @@ public class Ant {
                 double valorFeromona = feromonas.getValor(idNodoActual, idNodoPedido);
                 double valorHeuristica = heuristica.getValorHeuristica(idNodoActual, idNodoPedido);
 
+                double pertubacion = 0.9 + 0.2 * random.nextDouble();
+
                 // Ajustar por urgencia
                 double urgencia = UrgencyCalculator.calcularUrgenciaNormalizada(pedido);
                 double factorUrgencia = 1.0 + urgencia * parameters.getFactorPriorizacionUrgencia();
@@ -522,7 +553,7 @@ public class Ant {
             }
 
             // Si por algún error numérico no se seleccionó ninguno, devolver el primero
-            return pedidosRestantes.get(0);
+            return pedidosRestantes.get(random.nextInt(pedidosRestantes.size()));
         }
     }
 
@@ -533,7 +564,7 @@ public class Ant {
             Ubicacion ubicacionActual,
             Ubicacion ubicacionDestino,
             GrafoRutas grafo,
-            Map<TipoAlmacen, Double> capacidadTanques) {
+            Map<TipoAlmacen, Double> capacidadTanquesHormiga) {
 
         // Obtener ubicaciones de todos los almacenes
         List<Ubicacion> ubicacionesAlmacenes = obtenerUbicacionesAlmacenes(grafo);
@@ -552,7 +583,7 @@ public class Ant {
             }
 
             // RF88: Verificar si el tanque tiene capacidad suficiente
-            double capacidadDisponible = capacidadTanques.get(tipoAlmacen);
+            double capacidadDisponible = capacidadTanquesHormiga.get(tipoAlmacen);
             if (capacidadDisponible < parameters.getCapacidadMinimaReabastecimiento()) {
                 continue; // Tanque sin capacidad suficiente
             }
@@ -667,4 +698,49 @@ public class Ant {
         // Para simplificar, asumimos reabastecimiento completo de la capacidad
         return camion.getCargaM3();
     }
+
+    /**
+     * Verifica si un camión puede cargar un pedido
+     */
+    private boolean puedeCargarPedido(Camion camion,Pedido pedido){
+        boolean tieneEspacio = camion.getCargaM3()>=pedido.getVolumen();
+
+        boolean soportaPeso = camion.puedeCargar(pedido.getVolumen());
+
+        return tieneEspacio && soportaPeso;
+    }
+
+
+    /**
+     * Divide un pedido grande entre varios camiones
+     */
+    private List<Pedido> dividirPedidoGrande(Pedido pedidoOriginal,List<Camion> camionesDisponiblesHormiga){
+        List<Pedido> subpedidos = new ArrayList<>();
+        double volumenRestante = pedidoOriginal.getVolumen();
+
+        camionesDisponiblesHormiga.sort((c1,c2)->Double.compare(c2.getCargaM3(),c1.getCargaM3()));
+
+        int subpedidoId = 1;
+        for(Camion camion: camionesDisponiblesHormiga){
+            if(volumenRestante <= 0) break;
+            double capacidadCamion = camion.getCargaM3();
+            double volumenAsignable = Math.min(capacidadCamion, volumenRestante);
+
+            if(volumenAsignable > 0){
+                Pedido subpedido = new Pedido();
+                subpedido.setIdPedido(pedidoOriginal.getIdPedido()*1000+subpedidoId++);
+                subpedido.setVolumen(volumenAsignable);
+                subpedido.setDestino(pedidoOriginal.getDestino());
+                subpedido.setFechaLimite(pedidoOriginal.getFechaLimite());
+
+                subpedidos.add(subpedido);
+                volumenRestante-= volumenAsignable;
+
+            }
+        }
+        return subpedidos;
+    }
+
+
+
 }
