@@ -16,7 +16,6 @@ import pucp.edu.glp.glpdp1.service.MapaService;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -249,16 +248,14 @@ public class MapaController {
      */
     private List<Pedido> filtrarPedidosPorRangoFecha(List<Pedido> pedidos, LocalDateTime fechaInicio, LocalDateTime fechaFin) {
         if (fechaInicio == null || fechaFin == null) {
-            System.out.println('Devolviendo todos los pedidos');
             return pedidos; // Si no hay rango definido, devuelve todos
         }
-
-        long diasTotal = ChronoUnit.DAYS.between(fechaInicio, fechaFin);
-
+        // a ver
         return pedidos.stream()
                 .filter(pedido -> {
-                    int diasPedido = pedido.getDiasRelativos();
-                    return diasPedido >= 0 && diasPedido <= diasTotal;
+                    LocalDateTime fechaPedido = pedido.getFechaLimite();
+                    return !fechaPedido.isBefore(fechaInicio) &&
+                            !fechaPedido.isAfter(fechaFin);
                 })
                 .toList();
     }
