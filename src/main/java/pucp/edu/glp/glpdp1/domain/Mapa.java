@@ -3,6 +3,7 @@ package pucp.edu.glp.glpdp1.domain;
 import lombok.Getter;
 import lombok.Setter;
 import pucp.edu.glp.glpdp1.domain.Rutas;
+import pucp.edu.glp.glpdp1.domain.enums.EstadoCamion;
 import pucp.edu.glp.glpdp1.domain.enums.TipoAlmacen;
 import pucp.edu.glp.glpdp1.domain.enums.TipoCamion;
 
@@ -77,6 +78,7 @@ public class Mapa {
             camion.setCargaM3(5.0);
             camion.setPesoCargaTon(2.5);
             camion.setPesoCombinadoTon(3.5);
+            camion.setEstado(EstadoCamion.DISPONIBLE);
             this.flota.add(camion);
         }
     }
@@ -90,6 +92,7 @@ public class Mapa {
             camion.setCargaM3(10.0);
             camion.setPesoCargaTon(5.0);
             camion.setPesoCombinadoTon(6.5);
+            camion.setEstado(EstadoCamion.DISPONIBLE);
             this.flota.add(camion);
         }
     }
@@ -103,6 +106,7 @@ public class Mapa {
             camion.setCargaM3(15.0);
             camion.setPesoCargaTon(7.5);
             camion.setPesoCombinadoTon(9.5);
+            camion.setEstado(EstadoCamion.DISPONIBLE);
             this.flota.add(camion);
         }
     }
@@ -116,6 +120,7 @@ public class Mapa {
             camion.setCargaM3(25.0);
             camion.setPesoCargaTon(12.5);
             camion.setPesoCombinadoTon(15.0);
+            camion.setEstado(EstadoCamion.DISPONIBLE);
             this.flota.add(camion);
         }
     }
