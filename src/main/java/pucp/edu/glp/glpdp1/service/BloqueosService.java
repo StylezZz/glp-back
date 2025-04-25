@@ -75,8 +75,8 @@ public class BloqueosService {
             int horaFinal = Integer.parseInt(matcher.group(5));
             int minutoFinal = Integer.parseInt(matcher.group(6));
 
-            LocalDateTime fechaInicio = LocalDateTime.of(2025, 4, diaInicio, horaInicio, minutoInicio);
-            LocalDateTime fechaFinal = LocalDateTime.of(2025, 4, diaFinal, horaFinal, minutoFinal);
+            LocalDateTime fechaInicio = LocalDateTime.of(2025, 5, diaInicio, horaInicio, minutoInicio);
+            LocalDateTime fechaFinal = LocalDateTime.of(2025, 5, diaFinal, horaFinal, minutoFinal);
 
             String coordenadas = partes[1];
             String[] coordenadasArray = coordenadas.split(",");

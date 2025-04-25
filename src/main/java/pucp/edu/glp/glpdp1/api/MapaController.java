@@ -7,18 +7,17 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import pucp.edu.glp.glpdp1.algorithm.aco.ACOParameters;
-import pucp.edu.glp.glpdp1.domain.Bloqueo;
-import pucp.edu.glp.glpdp1.domain.Mapa;
-import pucp.edu.glp.glpdp1.domain.Pedido;
-import pucp.edu.glp.glpdp1.domain.Rutas;
+import pucp.edu.glp.glpdp1.domain.*;
 import pucp.edu.glp.glpdp1.service.AlgoritmoService;
 import pucp.edu.glp.glpdp1.service.MapaService;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/mapa")
@@ -40,29 +39,18 @@ public class MapaController {
         try {
             // Cargar pedidos desde el archivo subido
             mapaService.cargarPedidosEnMapaDesdeBytes(mapa, archivo.getBytes());
-            System.out.println("Total de pedidos cargados inicialmente: " + mapa.getPedidos().size());
             if(!mapa.getPedidos().isEmpty()){
-                System.out.println("Ejemplos de fechas en pedidos:");
                 mapa.getPedidos().stream().limit(3).forEach(p->
                         System.out.println("Pedido ID: " + p.getIdPedido() + " | Fecha Registro: " + p.getFechaRegistro() + " | Fecha Límite: "+ p.getFechaLimite()));
             }
 
-            int cont=0;
-            for(Pedido pedido: mapa.getPedidos()){
-                System.out.println(" Fecha Registro: " + pedido.getFechaRegistro() + " | Fecha Límite: "+ pedido.getFechaLimite());
-                cont++;
-                if(cont==4)break;
-            }
-
             if(fechaInicio != null && !fechaInicio.isEmpty()){
                 LocalDateTime inicio = LocalDateTime.parse(fechaInicio);
-                System.out.println("Fecha de inicio filtro: " +  inicio);
                 mapa.setFechaInicio(inicio);
             }
 
             if(fechaFin != null && !fechaFin.isEmpty()){
                 LocalDateTime fin = LocalDateTime.parse(fechaFin);
-                System.out.println("Fecha de fin filtro: " + fin);
                 mapa.setFechaFin(fin);
             }
 
@@ -70,11 +58,7 @@ public class MapaController {
                 List<Pedido> pedidosFiltrados = filtrarPedidosPorRangoFecha(
                         mapa.getPedidos(),mapa.getFechaInicio(),mapa.getFechaFin()
                 );
-                System.out.println("Pedidos antes del filtro: " +  mapa.getPedidos().size());
-                System.out.println("Pedidos después del filtro: " + pedidosFiltrados.size());
                 mapa.setPedidos(pedidosFiltrados);
-
-                System.out.println("Pedidos filtrados por rango de fechas: " + pedidosFiltrados.size());
             }
             return ResponseEntity.ok("Pedidos cargados correctamente. Total: " + mapa.getPedidos().size());
         } catch (IOException e) {
@@ -186,8 +170,8 @@ public class MapaController {
                 case "semana":
                 case "semanal":
                     // 2. Escenario de simulación semanal (7 días)
-                    params = ACOParameters.getConfiguracionCalidad();
-                    params.setNumeroIteraciones(100);  // Más iteraciones para mejor calidad
+                    params = ACOParameters.getConfiguracionRapida();
+                    params.setNumeroIteraciones(20);  // Más iteraciones para mejor calidad
                     // Configurar para que termine en tiempo adecuado (20-50 minutos)
                     params.setTiempoAvanceSimulacion(20);  // 30 minutos por iteración
 
@@ -228,28 +212,94 @@ public class MapaController {
 
             return ResponseEntity.ok(rutasOptimizadas);
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.badRequest().body("Error al planificar rutas: " + e.getMessage());
         }
     }
 
     @GetMapping("/visualizar-rutas")
-    public ResponseEntity<?> visualizarRutas() {
+    public ResponseEntity<?> visualizarRutas(
+            @RequestParam(required = false, defaultValue = "false") boolean detalleCompleto,
+            @RequestParam(required = false, defaultValue = "-1") int idRuta) {
+
         // Obtener las rutas actuales del mapa
         List<Rutas> rutas = mapa.getRutas();
-
         if (rutas == null || rutas.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body("No hay rutas generadas actualmente. Ejecute primero la planificación de rutas.");
+                    .body("No hay rutas generadas actualmente.");
         }
 
-        // Preparar datos para visualización
         Map<String, Object> datosVisualizacion = new HashMap<>();
+
+        if (idRuta != -1) {
+            // Solo expandir la ruta específica solicitada
+            rutas.stream()
+                    .filter(r -> r.getId() == idRuta)
+                    .findFirst()
+                    .ifPresent(ruta -> {
+                        Rutas rutaExpandida = new Rutas();
+                        // Copia propiedades básicas
+                        rutaExpandida.setId(ruta.getId());
+                        rutaExpandida.setCamion(ruta.getCamion());
+                        rutaExpandida.setDistanciaTotal(ruta.getDistanciaTotal());
+                        rutaExpandida.setTiempoTotal(ruta.getTiempoTotal());
+                        rutaExpandida.setConsumoTotal(ruta.getConsumoTotal());
+
+                        // Expandir ruta solo para esta ruta específica
+                        rutaExpandida.setUbicaciones(expandirRuta(ruta.getUbicaciones()));
+                        datosVisualizacion.put("rutaExpandida", rutaExpandida);
+                    });
+        }
+
+        // Información básica siempre
         datosVisualizacion.put("rutas", rutas);
         datosVisualizacion.put("almacenes", mapa.getAlmacenes());
         datosVisualizacion.put("bloqueos", mapa.getBloqueos());
         datosVisualizacion.put("pedidos", mapa.getPedidos());
 
         return ResponseEntity.ok(datosVisualizacion);
+    }
+
+    private List<Ubicacion> calcularPuntosIntermedios(Ubicacion origen, Ubicacion destino) {
+        List<Ubicacion> puntosIntermedios = new ArrayList<>();
+
+        int x1 = origen.getX();
+        int y1 = origen.getY();
+        int x2 = destino.getX();
+        int y2 = destino.getY();
+
+        // Factor de muestreo para reducir puntos (ajustar según necesidad)
+        int factorMuestreo = Math.max(1, (Math.abs(x2-x1) + Math.abs(y2-y1)) / 50);
+
+        // Primero nos movemos horizontalmente
+        int paso = x1 < x2 ? factorMuestreo : -factorMuestreo;
+        for (int x = x1 + paso; (paso > 0 && x < x2) || (paso < 0 && x > x2); x += paso) {
+            puntosIntermedios.add(new Ubicacion(x, y1));
+        }
+
+        // Después nos movemos verticalmente
+        paso = y1 < y2 ? factorMuestreo : -factorMuestreo;
+        for (int y = y1 + paso; (paso > 0 && y < y2) || (paso < 0 && y > y2); y += paso) {
+            puntosIntermedios.add(new Ubicacion(x2, y));
+        }
+
+        return puntosIntermedios;
+    }
+
+    // Método que expande una ruta
+    private List<Ubicacion> expandirRuta(List<Ubicacion> rutaOriginal) {
+        List<Ubicacion> rutaExpandida = new ArrayList<>();
+        if (rutaOriginal.isEmpty()) return rutaExpandida;
+
+        rutaExpandida.add(rutaOriginal.get(0));
+
+        for (int i = 0; i < rutaOriginal.size() - 1; i++) {
+            Ubicacion origen = rutaOriginal.get(i);
+            Ubicacion destino = rutaOriginal.get(i + 1);
+            rutaExpandida.addAll(calcularPuntosIntermedios(origen, destino));
+        }
+
+        return rutaExpandida;
     }
 
     @GetMapping("/diagnostico")
@@ -288,7 +338,6 @@ public class MapaController {
         if (fechaInicio == null || fechaFin == null) {
             return pedidos; // Si no hay rango definido, devuelve todos
         }
-        System.out.println("Filtrando pedidos entre " + fechaInicio + " y " + fechaFin);
         int pedidosDespuesDeInicio = 0;
         int pedidosAntesDeFin = 0;
         int pedidosDentroDelRango = 0;
@@ -302,18 +351,12 @@ public class MapaController {
             if(antesDeFin) pedidosAntesDeFin++;
             if(despuesDeInicio && antesDeFin) pedidosDentroDelRango++;
         }
-
-        System.out.println("Pedidos después de inicio: " + pedidosDespuesDeInicio);
-        System.out.println("Pedidos antes de fin: " + pedidosAntesDeFin);
-        System.out.println("Pedidos dentro del rango: " + pedidosDentroDelRango);
-
-        System.out.println("NOTA: Estamos filtrando por la fecha LÍMITE del pedido");
         return pedidos.stream()
                 .filter(pedido -> {
                     LocalDateTime fechaPedido = pedido.getFechaLimite();
                     return !fechaPedido.isBefore(fechaInicio) &&
                             !fechaPedido.isAfter(fechaFin);
                 })
-                .toList();
+                .collect(Collectors.toList());
     }
 }
