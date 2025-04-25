@@ -9,12 +9,14 @@ import org.springframework.web.multipart.MultipartFile;
 import pucp.edu.glp.glpdp1.algorithm.aco.ACOParameters;
 import pucp.edu.glp.glpdp1.domain.Bloqueo;
 import pucp.edu.glp.glpdp1.domain.Mapa;
+import pucp.edu.glp.glpdp1.domain.Pedido;
 import pucp.edu.glp.glpdp1.domain.Rutas;
 import pucp.edu.glp.glpdp1.service.AlgoritmoService;
 import pucp.edu.glp.glpdp1.service.MapaService;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -89,11 +91,23 @@ public class MapaController {
 
     @PostMapping("/planificar-rutas")
     public ResponseEntity<?> planificarRutas(
+            @RequestParam(required = false)Map<String,String> requestParams,
             @RequestParam(required = false, defaultValue = "dia") String escenario,
             @RequestParam(required = false) String fechaInicio,
             @RequestParam(required = false) String fechaFin) {
 
         try {
+            if(requestParams != null){
+                if(requestParams.containsKey("escenario")){
+                    escenario = requestParams.get("escenario");
+                }
+                if(requestParams.containsKey("fechaInicio")){
+                    fechaInicio = requestParams.get("fechaInicio");
+                }
+                if(requestParams.containsKey("fechaFin")){
+                    fechaFin = requestParams.get("fechaFin");
+                }
+            }
             // Configurar fechas para simulación si se proporcionan
             if (fechaInicio != null && !fechaInicio.isEmpty()) {
                 LocalDateTime inicio = LocalDateTime.parse(fechaInicio);
@@ -106,6 +120,21 @@ public class MapaController {
                 System.out.println("Fecha de fin: " + fin);
                 mapa.setFechaFin(fin);
             }
+
+            List<Pedido> pedidosFiltrados= filtrarPedidosPorRangoFecha(
+                    mapa.getPedidos(),
+                    mapa.getFechaInicio(),
+                    mapa.getFechaFin()
+            );
+
+            Mapa mapaFiltrado =new Mapa(mapa.getAncho(),mapa.getAlto());
+            mapaFiltrado.setPedidos(pedidosFiltrados);
+            mapaFiltrado.setBloqueos(mapa.getBloqueos());
+            mapaFiltrado.setAlmacenes(mapa.getAlmacenes());
+            mapaFiltrado.setAverias(mapa.getAverias());
+            mapaFiltrado.setFlota(mapa.getFlota());
+            mapaFiltrado.setFechaInicio(mapa.getFechaInicio());
+            mapaFiltrado.setFechaFin(mapa.getFechaFin());
 
             // Configurar parámetros según el escenario seleccionado
             ACOParameters params;
@@ -155,7 +184,7 @@ public class MapaController {
             }
 
             // Ejecutar algoritmo ACO
-            List<Rutas> rutasOptimizadas = acoAlgorithmService.generarRutasOptimizadas(mapa, params);
+            List<Rutas> rutasOptimizadas = acoAlgorithmService.generarRutasOptimizadas(mapaFiltrado, params);
 
             // Guardar las rutas en el mapa
             mapa.setRutas(rutasOptimizadas);
@@ -184,5 +213,53 @@ public class MapaController {
         datosVisualizacion.put("pedidos", mapa.getPedidos());
 
         return ResponseEntity.ok(datosVisualizacion);
+    }
+
+    @GetMapping("/diagnostico")
+    public ResponseEntity<?> diagnosticarDatos() {
+        Map<String, Object> diagnostico = new HashMap<>();
+
+        // Datos generales
+        diagnostico.put("totalPedidos", mapa.getPedidos().size());
+        diagnostico.put("totalBloqueos", mapa.getBloqueos().size());
+        diagnostico.put("totalCamiones", mapa.getFlota().size());
+        diagnostico.put("fechaInicio", mapa.getFechaInicio());
+        diagnostico.put("fechaFin", mapa.getFechaFin());
+
+        // Filtrar pedidos por fecha
+        if (mapa.getFechaInicio() != null && mapa.getFechaFin() != null) {
+            List<Pedido> pedidosFiltrados = filtrarPedidosPorRangoFecha(
+                    mapa.getPedidos(), mapa.getFechaInicio(), mapa.getFechaFin());
+            diagnostico.put("pedidosEnRango", pedidosFiltrados.size());
+        }
+
+        // Verificar capacidad de flota vs demanda
+        double capacidadTotalFlota = mapa.getFlota().stream()
+                .mapToDouble(c -> c.getPesoCombinadoTon()).sum();
+        double volumenTotalPedidos = mapa.getPedidos().stream()
+                .mapToDouble(p -> p.getVolumen()).sum();
+        diagnostico.put("capacidadTotalFlota", capacidadTotalFlota);
+        diagnostico.put("volumenTotalPedidos", volumenTotalPedidos);
+
+        return ResponseEntity.ok(diagnostico);
+    }
+
+    /**
+     * Método para filtrar pedidos dentro del rango de fechas de simulación
+     */
+    private List<Pedido> filtrarPedidosPorRangoFecha(List<Pedido> pedidos, LocalDateTime fechaInicio, LocalDateTime fechaFin) {
+        if (fechaInicio == null || fechaFin == null) {
+            System.out.println('Devolviendo todos los pedidos');
+            return pedidos; // Si no hay rango definido, devuelve todos
+        }
+
+        long diasTotal = ChronoUnit.DAYS.between(fechaInicio, fechaFin);
+
+        return pedidos.stream()
+                .filter(pedido -> {
+                    int diasPedido = pedido.getDiasRelativos();
+                    return diasPedido >= 0 && diasPedido <= diasTotal;
+                })
+                .toList();
     }
 }
