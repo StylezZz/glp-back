@@ -34,10 +34,48 @@ public class MapaController {
     }
 
     @PostMapping("/cargar-pedidos")
-    public ResponseEntity<String> cargarPedidos(@RequestParam("archivo") MultipartFile archivo) {
+    public ResponseEntity<String> cargarPedidos(@RequestParam("archivo") MultipartFile archivo,
+                                                @RequestParam(required = false) String fechaInicio,
+                                                @RequestParam(required = false) String fechaFin) {
         try {
             // Cargar pedidos desde el archivo subido
             mapaService.cargarPedidosEnMapaDesdeBytes(mapa, archivo.getBytes());
+            System.out.println("Total de pedidos cargados inicialmente: " + mapa.getPedidos().size());
+            if(!mapa.getPedidos().isEmpty()){
+                System.out.println("Ejemplos de fechas en pedidos:");
+                mapa.getPedidos().stream().limit(3).forEach(p->
+                        System.out.println("Pedido ID: " + p.getIdPedido() + " | Fecha Registro: " + p.getFechaRegistro() + " | Fecha Límite: "+ p.getFechaLimite()));
+            }
+
+            int cont=0;
+            for(Pedido pedido: mapa.getPedidos()){
+                System.out.println(" Fecha Registro: " + pedido.getFechaRegistro() + " | Fecha Límite: "+ pedido.getFechaLimite());
+                cont++;
+                if(cont==4)break;
+            }
+
+            if(fechaInicio != null && !fechaInicio.isEmpty()){
+                LocalDateTime inicio = LocalDateTime.parse(fechaInicio);
+                System.out.println("Fecha de inicio filtro: " +  inicio);
+                mapa.setFechaInicio(inicio);
+            }
+
+            if(fechaFin != null && !fechaFin.isEmpty()){
+                LocalDateTime fin = LocalDateTime.parse(fechaFin);
+                System.out.println("Fecha de fin filtro: " + fin);
+                mapa.setFechaFin(fin);
+            }
+
+            if(mapa.getFechaInicio()!= null && mapa.getFechaFin()!=null){
+                List<Pedido> pedidosFiltrados = filtrarPedidosPorRangoFecha(
+                        mapa.getPedidos(),mapa.getFechaInicio(),mapa.getFechaFin()
+                );
+                System.out.println("Pedidos antes del filtro: " +  mapa.getPedidos().size());
+                System.out.println("Pedidos después del filtro: " + pedidosFiltrados.size());
+                mapa.setPedidos(pedidosFiltrados);
+
+                System.out.println("Pedidos filtrados por rango de fechas: " + pedidosFiltrados.size());
+            }
             return ResponseEntity.ok("Pedidos cargados correctamente. Total: " + mapa.getPedidos().size());
         } catch (IOException e) {
             return ResponseEntity.badRequest().body("Error al cargar pedidos: " + e.getMessage());
@@ -250,7 +288,26 @@ public class MapaController {
         if (fechaInicio == null || fechaFin == null) {
             return pedidos; // Si no hay rango definido, devuelve todos
         }
-        // a ver
+        System.out.println("Filtrando pedidos entre " + fechaInicio + " y " + fechaFin);
+        int pedidosDespuesDeInicio = 0;
+        int pedidosAntesDeFin = 0;
+        int pedidosDentroDelRango = 0;
+
+        for(Pedido pedido: pedidos){
+            LocalDateTime fechaPedido = pedido.getFechaLimite();
+            boolean despuesDeInicio = !fechaPedido.isBefore(fechaInicio);
+            boolean antesDeFin = !fechaPedido.isAfter(fechaFin);
+
+            if(despuesDeInicio) pedidosDespuesDeInicio++;
+            if(antesDeFin) pedidosAntesDeFin++;
+            if(despuesDeInicio && antesDeFin) pedidosDentroDelRango++;
+        }
+
+        System.out.println("Pedidos después de inicio: " + pedidosDespuesDeInicio);
+        System.out.println("Pedidos antes de fin: " + pedidosAntesDeFin);
+        System.out.println("Pedidos dentro del rango: " + pedidosDentroDelRango);
+
+        System.out.println("NOTA: Estamos filtrando por la fecha LÍMITE del pedido");
         return pedidos.stream()
                 .filter(pedido -> {
                     LocalDateTime fechaPedido = pedido.getFechaLimite();
