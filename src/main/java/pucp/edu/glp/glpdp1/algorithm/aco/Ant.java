@@ -34,6 +34,9 @@ public class Ant {
     // Posición actual de la hormiga en el grafo
     private Nodo nodoActual;
 
+    // NUEVO: Solución guía para construcción
+    private ACOSolution solucionGuia;
+
     /**
      * Constructor
      * @param id Identificador único de la hormiga
@@ -43,7 +46,7 @@ public class Ant {
         this.id = id;
         this.parameters = parameters;
         this.random = new Random();
-        this.random= new Random(System.nanoTime() + id * 1000);
+        this.random = new Random(System.nanoTime() + id * 1000);
     }
 
     /**
@@ -62,9 +65,9 @@ public class Ant {
         // Crear solución vacía
         ACOSolution solucion = new ACOSolution();
 
-        Collections.shuffle(pedidos,random);
+        Collections.shuffle(pedidos, random);
 
-        Collections.shuffle(camionesDisponibles,random);
+        Collections.shuffle(camionesDisponibles, random);
 
         // IMPORTANTE: Hacer copia de los camiones disponibles para esta hormiga
         List<Camion> camionesDisponiblesHormiga = new ArrayList<>(camionesDisponibles);
@@ -198,7 +201,7 @@ public class Ant {
     /**
      * RF85: Implementa agrupamiento inteligente de pedidos por proximidad
      */
-    private List<List<Pedido>> agruparPedidosPorProximidad(List<Pedido> pedidos) {
+    protected List<List<Pedido>> agruparPedidosPorProximidad(List<Pedido> pedidos) {
         List<List<Pedido>> grupos = new ArrayList<>();
         Set<Pedido> pedidosAgrupados = new HashSet<>();
 
@@ -237,8 +240,6 @@ public class Ant {
             });
 
             double capacidadMaxima = 15.0;
-
-
 
             // Añadir hasta N pedidos más cercanos (o todos si hay menos)
             int maxAdicionales = Math.min(parameters.getMaxPedidosPorGrupo() - 1, pedidosCercanos.size());
@@ -457,7 +458,7 @@ public class Ant {
         for (Ruta ruta : rutas) {
             // Para cada tramo, calcular el consumo según el peso en ese momento
             double pesoTramo = pesoCamion + (pedidos.size() - rutas.indexOf(ruta)) * 0.5;
-            double consumoTramo = (ruta.getDistancia() * pesoTramo) / 180;
+            double consumoTramo = (ruta.getDistancia() * pesoTramo) / 180.0;
             consumoTotal += consumoTramo;
         }
         asignacion.setConsumoTotal(consumoTotal);
@@ -470,12 +471,20 @@ public class Ant {
      * Selecciona el siguiente pedido basado en feromonas y heurística
      * Implementa la regla de transición de estado del algoritmo ACO
      */
-    private Pedido seleccionarSiguientePedido(
+    protected Pedido seleccionarSiguientePedido(
             Nodo nodoActual,
             List<Pedido> pedidosRestantes,
             PheromoneMatrix feromonas,
             HeuristicCalculator heuristica,
             GrafoRutas grafo) {
+
+        // ADAPTACIÓN: Si hay solución guía, consultarla primero (25% de probabilidad)
+        if (solucionGuia != null && random.nextDouble() < 0.25) {
+            Pedido pedidoGuiado = consultarSolucionGuia(nodoActual, pedidosRestantes);
+            if (pedidoGuiado != null) {
+                return pedidoGuiado;
+            }
+        }
 
         double q0Efectivo = Math.max(0.1, parameters.getQ0()*(0.8+0.4*random.nextDouble()));
 
@@ -555,6 +564,80 @@ public class Ant {
             // Si por algún error numérico no se seleccionó ninguno, devolver el primero
             return pedidosRestantes.get(random.nextInt(pedidosRestantes.size()));
         }
+    }
+
+    /**
+     * Consulta la solución guía para encontrar un siguiente pedido recomendado
+     */
+    private Pedido consultarSolucionGuia(Nodo nodoActual, List<Pedido> pedidosRestantes) {
+        // Si no hay solución guía, retornar null
+        if (solucionGuia == null || solucionGuia.getAsignaciones().isEmpty()) {
+            return null;
+        }
+
+        // Obtener ubicación actual
+        Ubicacion ubicacionActual = nodoActual.getUbicacion();
+
+        // Buscar en cada asignación de la solución guía
+        for (CamionAsignacion asignacion : solucionGuia.getAsignaciones()) {
+            List<Ruta> rutas = asignacion.getRutas();
+
+            // Buscar una ruta que parta de la ubicación actual o cercana
+            for (int i = 0; i < rutas.size(); i++) {
+                Ruta ruta = rutas.get(i);
+
+                // Si el origen es cercano a la ubicación actual
+                if (esUbicacionCercana(ruta.getOrigen(), ubicacionActual, 3)) {
+                    // Obtener el pedido de destino (si es punto de entrega)
+                    if (ruta.isPuntoEntrega() && ruta.getPedidoEntrega() != null) {
+                        Pedido pedidoSugerido = ruta.getPedidoEntrega();
+
+                        // Verificar si este pedido está disponible
+                        if (pedidosRestantes.contains(pedidoSugerido)) {
+                            return pedidoSugerido;
+                        }
+
+                        // Si no está disponible, buscar uno similar
+                        Pedido pedidoSimilar = buscarPedidoSimilar(pedidoSugerido, pedidosRestantes);
+                        if (pedidoSimilar != null) {
+                            return pedidoSimilar;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null; // No se encontró pedido guía apropiado
+    }
+
+    /**
+     * Verifica si dos ubicaciones están cerca (Manhattan)
+     */
+    private boolean esUbicacionCercana(Ubicacion u1, Ubicacion u2, int umbralDistancia) {
+        int distancia = Math.abs(u1.getX() - u2.getX()) + Math.abs(u1.getY() - u2.getY());
+        return distancia <= umbralDistancia;
+    }
+
+    /**
+     * Busca un pedido similar al dado en una lista de pedidos
+     */
+    private Pedido buscarPedidoSimilar(Pedido pedidoReferencia, List<Pedido> pedidosDisponibles) {
+        Ubicacion ubicacionReferencia = pedidoReferencia.getDestino();
+        Pedido pedidoMasCercano = null;
+        double distanciaMinima = Double.MAX_VALUE;
+
+        for (Pedido p : pedidosDisponibles) {
+            double distancia = Math.abs(p.getDestino().getX() - ubicacionReferencia.getX()) +
+                    Math.abs(p.getDestino().getY() - ubicacionReferencia.getY());
+
+            if (distancia < distanciaMinima) {
+                distanciaMinima = distancia;
+                pedidoMasCercano = p;
+            }
+        }
+
+        // Solo retornar si está suficientemente cerca
+        return distanciaMinima <= 10 ? pedidoMasCercano : null;
     }
 
     /**
@@ -741,6 +824,10 @@ public class Ant {
         return subpedidos;
     }
 
-
-
+    /**
+     * Establece una solución guía para influir en la construcción
+     */
+    public void setSolucionGuia(ACOSolution solucionGuia) {
+        this.solucionGuia = solucionGuia;
+    }
 }
