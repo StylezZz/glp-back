@@ -186,7 +186,9 @@ public class GA {
             Ubicacion anterior = origen;
 
             for (Ubicacion u : ruta.getUbicaciones()) {
-                List<Ubicacion> pasos = trazarRuta(anterior, u);
+                LocalDateTime tiempo = mapa.getFechaInicio(); // o ajusta si tienes un tiempo real por camión
+                List<Ubicacion> pasos = trazarRuta(anterior, u, tiempo);
+
 
                 for (Ubicacion paso : pasos) {
                     System.out.println("      → Paso por: (" + paso.getX() + "," + paso.getY() + ")");
@@ -199,23 +201,30 @@ public class GA {
     }
 
 
-    // Genera pasos intermedios entre dos ubicaciones (ruta Manhattan)
-    private List<Ubicacion> trazarRuta(Ubicacion origen, Ubicacion destino) {
+    private List<Ubicacion> trazarRuta(Ubicacion origen, Ubicacion destino, LocalDateTime tiempoInicio) {
         List<Ubicacion> pasos = new ArrayList<>();
         int x = origen.getX();
         int y = origen.getY();
 
+        // Horizontal (Eje X)
         while (x != destino.getX()) {
             x += (destino.getX() > x) ? 1 : -1;
-            pasos.add(new Ubicacion(x, y));
+            Ubicacion paso = new Ubicacion(x, y);
+            if (mapa.estaBloqueado(paso, tiempoInicio)) return null;
+            pasos.add(paso);
         }
+
+        // Vertical (Eje Y)
         while (y != destino.getY()) {
             y += (destino.getY() > y) ? 1 : -1;
-            pasos.add(new Ubicacion(x, y));
+            Ubicacion paso = new Ubicacion(x, y);
+            if (mapa.estaBloqueado(paso, tiempoInicio)) return null;
+            pasos.add(paso);
         }
 
         return pasos;
     }
+
 
 
     // Un Individual representa una solución posible: una forma de distribuir los pedidos entre los camiones.
@@ -298,26 +307,28 @@ public class GA {
         }
 
         private boolean canPlace(Pedido p, Rutas r, List<Pedido> ld, LocalDateTime start) {
-            // Verifica si un camión puede tomar un pedido según volumen y fecha
-            double vol = 0;
-            for (Pedido x : ld) vol += x.getVolumen();
-            if (vol + p.getVolumen() > r.getCamion().getCargaM3()) {
-                return false;
-            }
+            // Verifica capacidad
+            double vol = ld.stream().mapToDouble(Pedido::getVolumen).sum();
+            if (vol + p.getVolumen() > r.getCamion().getCargaM3()) return false;
 
-            Ubicacion last;
-            if (r.getUbicaciones().isEmpty()) {
-                last = GA.this.mapa.getAlmacenes().get(0).getUbicacion();
-            } else {
-                last = r.getUbicaciones().get(r.getUbicaciones().size() - 1);
-            }
+            // Origen de ruta
+            Ubicacion last = r.getUbicaciones().isEmpty()
+                    ? mapa.getAlmacenes().get(0).getUbicacion()
+                    : r.getUbicaciones().get(r.getUbicaciones().size() - 1);
 
-            double dist = Math.abs(last.getX() - p.getDestino().getX())
-                    + Math.abs(last.getY() - p.getDestino().getY());
+            // Calcular llegada estimada
+            double dist = Math.abs(last.getX() - p.getDestino().getX()) +
+                    Math.abs(last.getY() - p.getDestino().getY());
             double hrs = dist / 50.0 + 0.25;
-            LocalDateTime arr = start.plusSeconds((long)(hrs * 3600));
-            return !arr.isAfter(p.getFechaLimite());
+            LocalDateTime llegada = start.plusSeconds((long)(hrs * 3600));
+
+            if (llegada.isAfter(p.getFechaLimite())) return false;
+
+            // Verifica si algún nodo del camino está bloqueado
+            List<Ubicacion> pasos = GA.this.trazarRuta(last, p.getDestino(), llegada.minusSeconds((long)(hrs * 1800)));
+            return pasos != null;
         }
+
 
         private void placeOrder(Pedido p, Rutas r, List<Pedido> ld, LocalDateTime start) {
             Ubicacion last;

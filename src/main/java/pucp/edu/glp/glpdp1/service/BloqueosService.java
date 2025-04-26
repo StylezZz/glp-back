@@ -33,7 +33,6 @@ public class BloqueosService {
                 .toList();
     }
 
-
     /**
      * Carga pedidos desde bytes (útil cuando los datos vienen de una API)
      * @param datos Bytes que contienen los datos de pedidos
