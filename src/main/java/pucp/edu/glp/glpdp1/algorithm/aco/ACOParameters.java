@@ -50,6 +50,9 @@ public class ACOParameters {
     // Máximo de pedidos por grupo en agrupamiento inteligente
     private int maxPedidosPorGrupo = 5;
 
+    // Ventana temporal en minutos
+    private int ventanaTemporalMinutos = 30;
+
     /**
      * Constructor por defecto con valores predefinidos
      */

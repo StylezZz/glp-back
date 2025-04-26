@@ -1,0 +1,142 @@
+========================================
+RESULTADO FINAL - ALGORITMO ACO
+Sesión: aco_20250426_005606
+Fecha: 2025-04-26T00:59:45.670091500
+========================================
+
+RESUMEN:
+- Total pedidos: 479
+- Pedidos asignados: 21 (4.38%)
+- Mejor iteración: 3
+- Mejor calidad: 0.000000
+- Tiempo total: 218.76 segundos
+
+DETALLE DE ASIGNACIONES:
+
+Camión: TB02 (Cap: 15.0m³)
+Pedidos asignados: 7
+  - #1051257919 | Vol: 11.0m³ | Dest: (56,25)
+  - #1886977330 | Vol: 1.0m³ | Dest: (30,44)
+  - #1651875254 | Vol: 2.0m³ | Dest: (69,35)
+  - #1620365035 | Vol: 2.0m³ | Dest: (13,33)
+  - #1744583897 | Vol: 2.0m³ | Dest: (53,9)
+  - #1359559233 | Vol: 2.0m³ | Dest: (42,1)
+  - #1017347787 | Vol: 5.0m³ | Dest: (66,48)
+  - Distancia: 58.00 km
+  - Consumo: 0.00 gal
+
+Camión: TB04 (Cap: 15.0m³)
+Pedidos asignados: 8
+  - #529749226 | Vol: 2.0m³ | Dest: (61,46)
+  - #1509335287 | Vol: 14.0m³ | Dest: (2,48)
+  - #23132809 | Vol: 2.0m³ | Dest: (29,33)
+  - #1816266930 | Vol: 1.0m³ | Dest: (69,41)
+  - #320965148 | Vol: 2.0m³ | Dest: (52,43)
+  - #241774883 | Vol: 5.0m³ | Dest: (37,43)
+  - #971956512 | Vol: 3.0m³ | Dest: (27,20)
+  - #463254155 | Vol: 3.0m³ | Dest: (33,50)
+  - Distancia: 110.00 km
+  - Consumo: 0.00 gal
+
+Camión: TB03 (Cap: 15.0m³)
+Pedidos asignados: 3
+  - #623147984 | Vol: 10.0m³ | Dest: (14,5)
+  - #1630848882 | Vol: 15.0m³ | Dest: (1,4)
+  - #788267850 | Vol: 3.0m³ | Dest: (1,0)
+  - Distancia: 10.00 km
+  - Consumo: 0.00 gal
+
+Camión: TB01 (Cap: 15.0m³)
+Pedidos asignados: 0
+  - Distancia: 90.00 km
+  - Consumo: 0.00 gal
+
+Camión: TA02 (Cap: 25.0m³)
+Pedidos asignados: 0
+  - Distancia: 96.00 km
+  - Consumo: 0.00 gal
+
+Camión: TA01 (Cap: 25.0m³)
+Pedidos asignados: 0
+  - Distancia: 30.00 km
+  - Consumo: 0.00 gal
+
+Camión: TC01 (Cap: 10.0m³)
+Pedidos asignados: 0
+  - Distancia: 60.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD10 (Cap: 5.0m³)
+Pedidos asignados: 0
+  - Distancia: 86.00 km
+  - Consumo: 0.00 gal
+
+Camión: TC04 (Cap: 10.0m³)
+Pedidos asignados: 1
+  - #656810129 | Vol: 2.0m³ | Dest: (23,29)
+  - Distancia: 64.00 km
+  - Consumo: 0.00 gal
+
+Camión: TC03 (Cap: 10.0m³)
+Pedidos asignados: 1
+  - #1811099965 | Vol: 1.0m³ | Dest: (12,5)
+  - Distancia: 38.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD01 (Cap: 5.0m³)
+Pedidos asignados: 0
+  - Distancia: 118.00 km
+  - Consumo: 0.00 gal
+
+Camión: TC02 (Cap: 10.0m³)
+Pedidos asignados: 0
+  - Distancia: 38.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD04 (Cap: 5.0m³)
+Pedidos asignados: 0
+  - Distancia: 68.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD03 (Cap: 5.0m³)
+Pedidos asignados: 1
+  - #258825279 | Vol: 1.0m³ | Dest: (18,21)
+  - Distancia: 52.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD02 (Cap: 5.0m³)
+Pedidos asignados: 0
+  - Distancia: 64.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD07 (Cap: 5.0m³)
+Pedidos asignados: 0
+  - Distancia: 80.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD06 (Cap: 5.0m³)
+Pedidos asignados: 0
+  - Distancia: 118.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD09 (Cap: 5.0m³)
+Pedidos asignados: 0
+  - Distancia: 66.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD08 (Cap: 5.0m³)
+Pedidos asignados: 0
+  - Distancia: 54.00 km
+  - Consumo: 0.00 gal
+
+Camión: TD05 (Cap: 5.0m³)
+Pedidos asignados: 0
+  - Distancia: 124.00 km
+  - Consumo: 0.00 gal
+
+PEDIDOS NO ASIGNADOS: 428
+- Volumen total no asignado: 4082.00m³
+- Distribución por tamaño:
+  • Pequeños (≤5m³): 190
+  • Medianos (5-15m³): 163
+  • Grandes (>15m³): 75

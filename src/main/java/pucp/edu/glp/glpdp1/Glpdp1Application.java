@@ -19,7 +19,6 @@ import pucp.edu.glp.glpdp1.service.MapaService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 @SpringBootApplication(exclude = {
 		DataSourceAutoConfiguration.class,

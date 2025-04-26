@@ -361,4 +361,21 @@ public class HeuristicCalculator {
             }
         }
     }
+
+    /**
+     * NUEVO: Método getter para la matriz heurística actual
+     */
+    public double[][] getMatrizHeuristicaActual() {
+        return matrizHeuristicaActual;
+    }
+
+    /**
+     * NUEVO: Método setter para la matriz heurística actual
+     */
+    public void setMatrizHeuristicaActual(double[][] nuevaMatriz) {
+        if (nuevaMatriz != null && nuevaMatriz.length == matrizHeuristicaActual.length &&
+                nuevaMatriz[0].length == matrizHeuristicaActual[0].length) {
+            this.matrizHeuristicaActual = nuevaMatriz;
+        }
+    }
 }

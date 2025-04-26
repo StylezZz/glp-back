@@ -1,0 +1,9 @@
+iteracion,pedidos_asignados,pedidos_no_asignados,calidad,distancia_total,consumo_total,camiones_usados,camiones_disponibles,tiempo_ms
+Iteración 0 | Tiempo: 22.96 seg | Camiones: 20/20 | Pedidos: 21/479
+Iteración 1 | Tiempo: 47.46 seg | Camiones: 19/20 | Pedidos: 21/479
+Iteración 2 | Tiempo: 71.12 seg | Camiones: 16/20 | Pedidos: 17/479
+Iteración 3 | Tiempo: 98.87 seg | Camiones: 20/20 | Pedidos: 21/479
+Iteración 4 | Tiempo: 120.66 seg | Camiones: 20/20 | Pedidos: 21/479
+Iteración 5 | Tiempo: 141.56 seg | Camiones: 20/20 | Pedidos: 21/479
+Iteración 6 | Tiempo: 166.82 seg | Camiones: 20/20 | Pedidos: 21/479
+Iteración 7 | Tiempo: 194.73 seg | Camiones: 20/20 | Pedidos: 21/479

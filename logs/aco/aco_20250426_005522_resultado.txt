@@ -1,0 +1,21 @@
+========================================
+RESULTADO FINAL - ALGORITMO ACO
+Sesión: aco_20250426_005522
+Fecha: 2025-04-26T00:55:35.283251500
+========================================
+
+RESUMEN:
+- Total pedidos: 0
+- Pedidos asignados: 0 (NaN%)
+- Mejor iteración: 0
+- Mejor calidad: 1.000000
+- Tiempo total: 12.40 segundos
+
+DETALLE DE ASIGNACIONES:
+
+PEDIDOS NO ASIGNADOS: 0
+- Volumen total no asignado: 0.00m³
+- Distribución por tamaño:
+  • Pequeños (≤5m³): 0
+  • Medianos (5-15m³): 0
+  • Grandes (>15m³): 0
