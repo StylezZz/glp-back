@@ -69,6 +69,21 @@ public class Mapa {
         cargarTipoA();
     }
 
+    public boolean estaBloqueado(Ubicacion u, LocalDateTime momento) {
+        if (bloqueos == null) return false;
+
+        for (Bloqueo b : bloqueos) {
+            if (!momento.isBefore(b.getFechaInicio()) && !momento.isAfter(b.getFechaFinal())) {
+                if (b.getTramos().contains(u)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+
     private void cargarTipoD(){
         for(int i =0; i<10;i++){
             Camion camion = new Camion();
