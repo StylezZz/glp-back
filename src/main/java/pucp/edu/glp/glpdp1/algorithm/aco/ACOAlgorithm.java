@@ -4,13 +4,10 @@ import lombok.Getter;
 import lombok.Setter;
 import pucp.edu.glp.glpdp1.algorithm.model.CamionAsignacion;
 import pucp.edu.glp.glpdp1.algorithm.model.GrafoRutas;
-import pucp.edu.glp.glpdp1.algorithm.model.Nodo;
 import pucp.edu.glp.glpdp1.algorithm.model.Ruta;
 import pucp.edu.glp.glpdp1.algorithm.utils.ACOLogger;
 import pucp.edu.glp.glpdp1.algorithm.utils.ACOMonitor;
 import pucp.edu.glp.glpdp1.algorithm.utils.AlgorithmUtils;
-import pucp.edu.glp.glpdp1.algorithm.utils.DistanceCalculator;
-import pucp.edu.glp.glpdp1.algorithm.utils.UrgencyCalculator;
 import pucp.edu.glp.glpdp1.domain.Almacen;
 import pucp.edu.glp.glpdp1.domain.Averia;
 import pucp.edu.glp.glpdp1.domain.Bloqueo;
@@ -20,7 +17,6 @@ import pucp.edu.glp.glpdp1.domain.Pedido;
 import pucp.edu.glp.glpdp1.domain.Rutas;
 import pucp.edu.glp.glpdp1.domain.Ubicacion;
 import pucp.edu.glp.glpdp1.domain.enums.EstadoCamion;
-import pucp.edu.glp.glpdp1.domain.enums.Incidente;
 import pucp.edu.glp.glpdp1.domain.enums.TipoAlmacen;
 
 import java.time.LocalDateTime;
@@ -32,8 +28,6 @@ import java.util.stream.Collectors;
 /**
  * Implementación del algoritmo de Colonia de Hormigas (ACO) para optimización de rutas
  * de distribución de GLP.
- *
- * Esta clase implementa los requisitos RF85-RF100 especificados en el proyecto.
  */
 @Getter
 @Setter
@@ -67,23 +61,24 @@ public class ACOAlgorithm {
     private Map<TipoAlmacen, Double> capacidadActualTanques;
 
     // Búsqueda local
+    private boolean busquedaLocalActiva = true;
     // Historial de mejores soluciones por iteración
     private List<ACOSolution> historicoSoluciones = new ArrayList<>();
     // Matriz para almacenar frecuencia de uso de aristas en buenas soluciones
     private int[][] matrizFrecuenciaAristas;
-    // Factor para controlar influencia de la búsqueda ogi
-    private double factorBusquedaLocal = 0.8;
     // Factor para controlar influencia del aprendizaje entre iteraciones
     private double factorAprendizaje = 0.3;
-    // Bandera para activar/desactivar búsqueda ogi
-    private boolean busquedaLocalActiva = true;
     // Contador de iteraciones sin mejora global (más estricto que iterSinMejora)
     private int iteracionesSinMejoraGlobal;
-    // Mejor calidad histórica
-    private double mejorCalidadHistorica = Double.NEGATIVE_INFINITY;
+
+    // Factor de evaporación entre planificaciones
+    private double factorEvaporacionEntrePlanificaciones = 0.5;
+
+    private Set<Integer> pedidosProcesados = new HashSet<>();
 
     /**
      * Constructor principal del algoritmo
+     *
      * @param mapa Mapa con los datos de la ciudad, flota, pedidos, etc.
      */
     public ACOAlgorithm(Mapa mapa) {
@@ -94,7 +89,8 @@ public class ACOAlgorithm {
 
     /**
      * Constructor con parámetros personalizados
-     * @param mapa Mapa con los datos de la ciudad, flota, pedidos, etc.
+     *
+     * @param mapa       Mapa con los datos de la ciudad, flota, pedidos, etc.
      * @param parameters Parámetros personalizados del algoritmo
      */
     public ACOAlgorithm(Mapa mapa, ACOParameters parameters) {
@@ -103,8 +99,8 @@ public class ACOAlgorithm {
         inicializarAlgoritmo();
     }
 
-    private void debug(String mensaje){
-        System.out.println("[ACO] "+ mensaje);
+    private void debug(String mensaje) {
+        System.out.println("[ACO] " + mensaje);
     }
 
     /**
@@ -146,7 +142,6 @@ public class ACOAlgorithm {
 
     /**
      * Inicializa el estado de los tanques intermedios
-     * RF86, RF88, RF96: Control de tanques intermedios
      */
     private void inicializarEstadoTanques() {
         capacidadActualTanques = new HashMap<>();
@@ -161,23 +156,16 @@ public class ACOAlgorithm {
      * Inicializa estados de camiones si no están ya inicializados
      */
     private void inicializarEstadosCamiones() {
-        int corregidos = 0;
         for (Camion camion : mapa.getFlota()) {
             if (camion.getEstado() == null) {
                 camion.setEstado(EstadoCamion.DISPONIBLE);
-                corregidos++;
             }
-        }
-
-        if (corregidos > 0) {
-            System.out.println("⚠️ Se inicializaron " + corregidos +
-                    " camiones que tenían estado null");
         }
     }
 
-    private void debugAsignacion(Camion camion,List<Pedido> pedidos){
-        System.out.println("🛻 ["+camion.getIdC()+"] Asignado con " + pedidos.size() + " pedidos:");
-        for(Pedido p: pedidos){
+    private void debugAsignacion(Camion camion, List<Pedido> pedidos) {
+        System.out.println("🛻 [" + camion.getId() + "] Asignado con " + pedidos.size() + " pedidos:");
+        for (Pedido p : pedidos) {
             System.out.println("   📦 Pedido #" + p.getIdPedido() +
                     " - Volumen: " + p.getVolumen() + "m³" +
                     " - Destino: (" + p.getDestino().getX() + "," + p.getDestino().getY() + ")");
@@ -186,6 +174,7 @@ public class ACOAlgorithm {
 
     /**
      * Método principal que ejecuta el algoritmo ACO
+     *
      * @return La mejor solución encontrada
      */
     public List<Rutas> ejecutar() {
@@ -199,253 +188,131 @@ public class ACOAlgorithm {
 
         // Mostar estado inicial
         this.loggerACO.logFlota(mapa.getFlota());
-        // RF97: Detección de inconsistencias en datos
-        if (detectarInconsistencias()) {
+
+        // TO-DO: Detección de inconsistencias en datos
+        /*if (detectarInconsistencias()) {
             logger.warning("Se detectaron inconsistencias en los datos de entrada");
-        }
+        }*/
 
-        LocalDateTime tiempoActual = mapa.getFechaInicio() != null ? mapa.getFechaInicio() : LocalDateTime.now();
-        ultimaReplanificacion = tiempoActual;
+        /* === Estados Iniciales === */
 
-        // RF99: Ajuste dinámico de frecuencia de replanificación
-        ajustarFrecuenciaReplanificacion();
+        // Tiempo de simulación
+        LocalDateTime tiempoSimulacion = mapa.getFechaInicio() != null ? mapa.getFechaInicio() : LocalDateTime.now();
+        LocalDateTime proximaReplanificacion = tiempoSimulacion.plusMinutes(parameters.getIntervaloReplanificacionMinutos());
 
-        // Parámetros adaptativos para búsqueda ogi
-        double factorBusquedaLocalInicial = factorBusquedaLocal;
+        // Flota, Pedidos y Rutas
+        Map<String, Ubicacion> posicionesCamiones = inicializarPosicionesCamiones();
+        List<Pedido> pedidosPendientes = new ArrayList<>(mapa.getPedidos());
+        Map<String, List<Ruta>> rutasPlanificadas = new HashMap<>();
 
-        while (iteracion < parameters.getNumeroIteraciones() && !estadoColapso) {
-            // Verificar si toca replanificar
-            if (ChronoUnit.MINUTES.between(ultimaReplanificacion, tiempoActual) >= frecuenciaReplanificacion) {
-                ultimaReplanificacion = tiempoActual;
-                ajustarFrecuenciaReplanificacion();
+        // Lista histórica de todas las rutas para resultado final
+        List<Rutas> rutasCompletas = new ArrayList<>();
+
+        // TO-DO: Ajuste dinámico de frecuencia de replanificación por densidad de pedidos
+        /*ajustarFrecuenciaReplanificacion();*/
+
+        // Bucle principal de ventanas de simulación
+        while (tiempoSimulacion.isBefore(mapa.getFechaFin()) && !estadoColapso) {
+            System.out.println("\n=== TIEMPO DE SIMULACIÓN: " + tiempoSimulacion + " ===");
+
+            System.out.println("🔍 PEDIDOS INICIALES: " + mapa.getPedidos().size());
+            for (Pedido p : mapa.getPedidos()) {
+                System.out.println("  - ID: " + p.getIdPedido() +
+                        " | Destino: (" + p.getDestino().getX() + "," + p.getDestino().getY() + ")" +
+                        " | Registro: " + p.getFechaRegistro());
             }
 
-            // RF90/RF91: Exclusión de camiones en mantenimiento
-            actualizarEstadoCamionesMantenimiento(tiempoActual);
+            // Procesar averias en camiones | TO-DO: Usarlas bien
+            List<String> camionesAveriadosNuevos = procesarAverias(tiempoSimulacion);
+            boolean averiasNuevas = !camionesAveriadosNuevos.isEmpty();
 
-            // RF96: Relleno automático de tanques al empezar el día
-            if (esInicioDeDia(tiempoActual)) {
-                rellenarTanquesIntermedios();
-            }
+            // 1. Determinar si es momento de replanificar
+            boolean necesitaReplanificar = tiempoSimulacion.isAfter(proximaReplanificacion) ||
+                    (averiasNuevas && parameters.isReplanificacionEmergencia());
 
-            // Verificar y actualizar eventos dinámicos (averías, bloqueos, etc.)
-            boolean huboEventos = actualizarEventosDinamicos(tiempoActual);
-            if (huboEventos) {
-                iterSinMejora = 0;
-            }
+            // 2. Si es momento de replanificar, ejecutar múltiples iteraciones de ACO
+            if (necesitaReplanificar) {
+                System.out.println(">>> REPLANIFICACIÓN EN: " + tiempoSimulacion);
 
-            // RF88: Verificar disponibilidad de combustible en tanques
-            verificarDisponibilidadCombustible(tiempoActual);
+                // Actualizar próxima replanificación
+                proximaReplanificacion = tiempoSimulacion.plusMinutes(parameters.getIntervaloReplanificacionMinutos());
 
-            actualizarEstadoCamiones(tiempoActual);
-
-            // MODIFICACIÓN: Ajustar estrategia de búsqueda ogi según progreso
-            ajustarEstrategiaBusquedaLocal();
-
-            // MODIFICACIÓN: Actualizar heurística con conocimiento histórico
-            actualizarHeuristicaConConocimientoHistorico();
-
-            // Actualizar heurística con información dinámica actual
-            heuristicCalculator.actualizarHeuristicaDinamica(
-                    mapa.getPedidos(),
-                    mapa.getBloqueos(),
-                    tiempoActual,
-                    capacidadActualTanques
-            );
-
-            // RF95: Priorización por nivel de combustible
-            List<Camion> camionesPriorizados = priorizarCamionesPorCombustible();
-
-            camionesPriorizados = filtrarCamionesDisponibles(camionesPriorizados);
-
-            // RF100: Gestión preventiva de inventario
-            priorizarTanquesPorTiempoAgotamiento();
-
-            // Construcción de soluciones por cada hormiga
-            List<ACOSolution> soluciones = new ArrayList<>();
-            ACOSolution mejorSolucionIteracion = null;
-            double mejorCalidadIteracion = Double.NEGATIVE_INFINITY;
-
-            for (int i = 0; i < parameters.getNumeroHormigas(); i++) {
-                List<Camion> camionesHormiga = new ArrayList<>(camionesPriorizados);
-                Map<TipoAlmacen,Double> capacidadTanquesHormiga = new HashMap<>(capacidadActualTanques);
-
-                // Construir solución con una hormiga
-                Ant hormiga = colony.getHormigas().get(i);
-
-                // MODIFICACIÓN: Si es una de las primeras hormigas y hay histórico,
-                // usar solución histórica como guía
-                if (i < 2 && !historicoSoluciones.isEmpty() && random.nextDouble() < factorAprendizaje) {
-                    ACOSolution solucionGuia = seleccionarSolucionHistoricaAleatoria();
-                    hormiga.setSolucionGuia(solucionGuia);
-                }
-
-                // Construir solución
-                ACOSolution solucion = hormiga.construirSolucion(
-                        mapa.getPedidos(),
-                        camionesHormiga,
-                        pheromonesMatrix,
-                        heuristicCalculator,
-                        tiempoActual,
-                        grafo,
-                        capacidadTanquesHormiga
+                // Crear estado actual para el ACO
+                EstadoActual estadoActual = new EstadoActual(
+                        posicionesCamiones,
+                        filtrarCamionesDisponibles(mapa.getFlota()),
+                        pedidosPendientes,
+                        tiempoSimulacion
                 );
 
-                // Búsqueda local
-                if (busquedaLocalActiva && random.nextDouble() < factorBusquedaLocal) {
-                    aplicarBusquedaLocal(solucion);
-                }
+                // Horizonte de planificación
+                LocalDateTime horizonteFinal = tiempoSimulacion.plusMinutes(parameters.getHorizontePlanificacionMinutos());
 
-                System.out.println("\n=== Hormiga #" + (i + 1) + "  - Iteración " + iteracion + " ===");
-                if(solucion.getAsignaciones().isEmpty()){
-                    System.out.println("⚠️ No se pudieron realizar asignaciones");
-                }else{
-                    for(CamionAsignacion asignacion: solucion.getAsignaciones()){
-                        debugAsignacion(asignacion.getCamion(), asignacion.getPedidos());
-                    }
-                }
+                // Ejecutar múltiples iteraciones de ACO para este horizonte
+                ACOSolution nuevaSolucion = ejecutarACODinamicoConMultiplesIteraciones(estadoActual, horizonteFinal);
 
-                if(!solucion.getPedidosNoAsignados().isEmpty()){
-                    System.out.println("❌ " + solucion.getPedidosNoAsignados().size() +
-                            " pedidos no pudieron asignarse");
-                }
+                // Extraer nuevas rutas planificadas
+                rutasPlanificadas = extraerRutasPlanificadas(nuevaSolucion);
 
-                // Evaluar calidad de la solución
-                double calidad = evaluarSolucion(solucion, tiempoActual);
-                solucion.setCalidad(calidad);
-                soluciones.add(solucion);
+                // Guardar estado para resultado final
+                guardarEstadoParaResultado(rutasCompletas, nuevaSolucion, tiempoSimulacion);
 
-                // Actualizar mejor solución de esta iteración
-                if (calidad > mejorCalidadIteracion) {
-                    mejorCalidadIteracion = calidad;
-                    mejorSolucionIteracion = solucion;
-                }
-
-                // Actualizar mejor solución global
-                if (calidad > mejorCalidadGlobal) {
-                    mejorSolucionGlobal = solucion;
-                    mejorCalidadGlobal = calidad;
-                    iteracionesSinMejoraGlobal = 0;
-                } else {
-                    iteracionesSinMejoraGlobal++;
-                }
+                iteracion++;
             }
 
-            // MODIFICACIÓN: Actualizar historial de soluciones
-            if (mejorSolucionIteracion != null) {
-                historicoSoluciones.add(mejorSolucionIteracion.clone());
-                // Limitar el histórico a las últimas 10 iteraciones
-                if (historicoSoluciones.size() > 10) {
-                    historicoSoluciones.remove(0);
-                }
+            // Actualizar posiciones según rutas planificadas
+            actualizarPosicionesCamiones(posicionesCamiones, rutasPlanificadas, parameters.getTiempoAvanceSimulacion());
 
-                // Actualizar matriz de frecuencia de aristas
-                actualizarMatrizFrecuencia(mejorSolucionIteracion);
-
-                // Actualizar mejor calidad histórica
-                if (mejorSolucionIteracion.getCalidad() > mejorCalidadHistorica) {
-                    mejorCalidadHistorica = mejorSolucionIteracion.getCalidad();
-                }
+            System.out.println("\n🔄 POSICIONES ACTUALIZADAS:");
+            for (Map.Entry<String, Ubicacion> entry : posicionesCamiones.entrySet()) {
+                Ubicacion pos = entry.getValue();
+                System.out.println("  - " + entry.getKey() + ": (" + pos.getX() + "," + pos.getY() + ")");
             }
 
-            // Actualizar feromonas basado en las soluciones
-            pheromonesMatrix.actualizarFeromonas(soluciones, parameters.getFactorEvaporacion());
+            // Detectar entregas completadas
+            List<Pedido> pedidosEntregados = detectarEntregasCompletadas(posicionesCamiones, rutasPlanificadas, tiempoSimulacion);
+            pedidosPendientes.removeAll(pedidosEntregados);
 
-            // MODIFICACIÓN: Intensificar feromonas en las mejores rutas históricas
-            if (iteracion % 5 == 0 && !historicoSoluciones.isEmpty()) {
-                intensificarFeromonasHistoricas();
+            // Añadir nuevos pedidos si existen para este momento
+            List<Pedido> nuevosPedidos = obtenerNuevosPedidos(tiempoSimulacion, pedidosPendientes);
+            System.out.println("🔍 TODOS LOS PEDIDOS DESPUÉS DE AÑADIR NUEVOS: " + pedidosPendientes.size());
+            if (!nuevosPedidos.isEmpty()) {
+                System.out.println("🔢 Pendientes ANTES de añadir: " + pedidosPendientes.size());
+                pedidosPendientes.addAll(nuevosPedidos);
+                System.out.println("📦 " + nuevosPedidos.size() + " NUEVOS PEDIDOS RECIBIDOS");
+                System.out.println("🔢 Pendientes DESPUÉS de añadir: " + pedidosPendientes.size());
             }
 
-            // Verificar mejora y control de convergencia
-            if (mejorCalidadGlobal > mejorCalidadAnterior) {
-                iterSinMejora = 0;
-            } else {
-                iterSinMejora++;
-            }
-            mejorCalidadAnterior = mejorCalidadGlobal;
+            // 4. Visualizar estado actual
+            visualizarEstadoActual(tiempoSimulacion, posicionesCamiones, rutasPlanificadas, pedidosPendientes);
 
-            // RF94: Detección de colapso del sistema
-            if (detectarEstadoColapso(soluciones)) {
+            // 5. Verificar estado de colapso
+            if (detectarEstadoColapso(pedidosPendientes, tiempoSimulacion)) {
                 logger.warning("ALERTA: Sistema en estado de colapso irreversible detectado");
                 estadoColapso = true;
                 break;
             }
 
-            // Aplicar mecanismo anti-estancamiento si es necesario
-            if (iterSinMejora >= parameters.getMaxIteracionesSinMejora()) {
-                if (iteracion < parameters.getNumeroIteraciones() * parameters.getUmbralConvergenciaTemprana()) {
-                    // Convergencia temprana: perturbar para escapar de óptimo ogi
-                    pheromonesMatrix.perturbarFeromonas(parameters.getFeromonaInicial());
-                    iterSinMejora = 0;
+            // Verificar estado de combustible
+            verificarEstadoCombustibleFlota();
 
-                    // MODIFICACIÓN: Aprovechar el conocimiento histórico tras perturbación
-                    if (!historicoSoluciones.isEmpty() && random.nextDouble() < 0.5) {
-                        incorporarConocimientoHistorico();
-                    }
-                } else {
-                    // Convergencia tardía: asumir que se encontró buena solución
-                    logger.info("Convergencia alcanzada en iteración " + iteracion);
-                    break;
-                }
-            }
-
-            // RF93: Generación de datos para visualización
-            generarDatosVisualizacion(mejorSolucionGlobal, iteracion);
-            long tiempoTranscurrido = System.currentTimeMillis() - tiempoInicioEjecucion;
-            loggerACO.logIteracion(iteracion, mejorSolucionGlobal, camionesPriorizados,
-                    mapa.getPedidos().size(), tiempoTranscurrido);
-            monitor.registrarIteracion(iteracion, mejorSolucionGlobal,
-                    mapa.getPedidos().size(), camionesPriorizados);
-            iteracion++;
-
-            // Avanzar tiempo para simulación
-            if (mapa.getFechaInicio() != null) {
-                tiempoActual = tiempoActual.plusMinutes(parameters.getTiempoAvanceSimulacion());
-            }
+            // Avanzar tiempo de simulación
+            tiempoSimulacion = tiempoSimulacion.plusMinutes(parameters.getTiempoAvanceSimulacion());
         }
 
-        logger.info("Algoritmo ACO finalizado después de " + iteracion + " iteraciones");
-
-        // MODIFICACIÓN: Aplicar búsqueda ogi intensiva a la mejor solución final
-        if (mejorSolucionGlobal != null) {
-            logger.info("Aplicando búsqueda ogi intensiva a la mejor solución global");
-            double factorOriginal = factorBusquedaLocal;
-            factorBusquedaLocal = 1.0; // Máxima intensidad
-            for (int i = 0; i < 10; i++) { // Múltiples iteraciones de mejora
-                aplicarBusquedaLocal(mejorSolucionGlobal);
-            }
-            factorBusquedaLocal = factorOriginal;
-        }
-
-        // Mostrar la mejor solución encontrada
-        System.out.println("\n✅ MEJOR SOLUCIÓN ENCONTRADA (Calidad: " +
-                String.format("%.6f", mejorCalidadGlobal) + ")");
-        if (mejorSolucionGlobal != null) {
-            System.out.println("Total asignaciones: " + mejorSolucionGlobal.getAsignaciones().size());
-            for (CamionAsignacion asignacion : mejorSolucionGlobal.getAsignaciones()) {
-                debugAsignacion(asignacion.getCamion(), asignacion.getPedidos());
-            }
-            if (!mejorSolucionGlobal.getPedidosNoAsignados().isEmpty()) {
-                System.out.println("❌ " + mejorSolucionGlobal.getPedidosNoAsignados().size() +
-                        " pedidos no pudieron asignarse");
-            }
-        }
+        logger.info("Algoritmo ACO con horizonte móvil finalizado");
 
         // Generar informes finales
         long tiempoTotalMs = System.currentTimeMillis() - tiempoInicioEjecucion;
         loggerACO.logAsignacionDetallada(mejorSolucionGlobal);
         loggerACO.generarDiagnostico(mejorSolucionGlobal, mapa.getPedidos().size());
-        monitor.analizarProblemas(mejorSolucionGlobal, mapa.getPedidos().size(), mapa.getFlota());
-        loggerACO.guardarEstadisticas(mejorSolucionGlobal, mapa.getPedidos().size(), tiempoTotalMs);
 
-        System.out.println("\n✅ ALGORITMO ACO FINALIZADO");
-        System.out.println("Tiempo total: " + String.format("%.2f", tiempoTotalMs / 1000.0) + " segundos");
-        System.out.println("Archivos de resultados generados en carpeta logs/aco/");
-        return convertirSolucionARutas(mejorSolucionGlobal);
+        return rutasCompletas;
     }
 
     /**
      * RF97: Detección de inconsistencias en los datos de entrada
+     *
      * @return true si se detectaron inconsistencias, false en caso contrario
      */
     private boolean detectarInconsistencias() {
@@ -485,7 +352,7 @@ public class ACOAlgorithm {
             for (int i = 0; i < bloqueo.getTramos().size() - 1; i++) {
                 if (!sonAdyacentes(bloqueo.getTramos().get(i), bloqueo.getTramos().get(i + 1))) {
                     errores.add("Bloqueo en " + bloqueo.getFechaInicio());
-                    for(Ubicacion tramo : bloqueo.getTramos()){
+                    for (Ubicacion tramo : bloqueo.getTramos()) {
                         errores.add("Tramo: " + tramo.getX() + "," + tramo.getY());
                     }
                     errores.add("Bloqueo en " + bloqueo.getFechaInicio() + ": Tramos no adyacentes");
@@ -499,13 +366,13 @@ public class ACOAlgorithm {
             // Verificar coherencia de pesos
             if (camion.getPesoCargaTon() > camion.getCargaM3() * 0.5 ||
                     Math.abs(camion.getPesoCombinadoTon() - (camion.getPesoBrutoTon() + camion.getPesoCargaTon())) > 0.01) {
-                errores.add("Camión " + camion.getIdC() + ": Inconsistencia en pesos o capacidades");
+                errores.add("Camión " + camion.getId() + ": Inconsistencia en pesos o capacidades");
                 inconsistenciasDetectadas = true;
             }
 
             // Verificar galones no negativos
             if (camion.getGalones() < 0) {
-                errores.add("Camión " + camion.getIdC() + ": Galones negativos");
+                errores.add("Camión " + camion.getId() + ": Galones negativos");
                 inconsistenciasDetectadas = true;
             }
         }
@@ -545,12 +412,12 @@ public class ACOAlgorithm {
             // Para este ejemplo, asumimos que cada 60 días hay un mantenimiento preventivo
             if (estaEnMantenimientoPreventivo(camion, tiempoActual)) {
                 camion.setAveriado(true); // Usar el flag de averiado para indicar no disponibilidad
-                logger.info("Camión " + camion.getIdC() + " no disponible por mantenimiento preventivo");
+                logger.info("Camión " + camion.getId() + " no disponible por mantenimiento preventivo");
             }
             // Si está en mantenimiento correctivo por avería previa
             else if (estaEnMantenimientoCorrectivo(camion, tiempoActual)) {
                 camion.setAveriado(true);
-                logger.info("Camión " + camion.getIdC() + " no disponible por mantenimiento correctivo");
+                logger.info("Camión " + camion.getId() + " no disponible por mantenimiento correctivo");
             }
         }
     }
@@ -562,7 +429,7 @@ public class ACOAlgorithm {
         // Aquí se consultaría el plan de mantenimiento preventivo
         // Simulación básica: cada 60 días, según ID del camión
         int dia = tiempo.getDayOfYear();
-        String idNum = camion.getIdC().substring(2); // Extraer número del ID (ej: "TA01" -> "01")
+        String idNum = camion.getId().substring(2); // Extraer número del ID (ej: "TA01" -> "01")
         int idNumeric = Integer.parseInt(idNum);
 
         // Suponemos que el mantenimiento dura 1 día completo
@@ -576,25 +443,6 @@ public class ACOAlgorithm {
         // En un entorno real, se consultaría un registro de mantenimientos correctivos
         // Simulación básica: asumimos que un camión averiado ya está marcado
         return camion.isAveriado();
-    }
-
-    /**
-     * RF96: Relleno automático de tanques intermedios al inicio del día
-     */
-    private void rellenarTanquesIntermedios() {
-        for (Almacen almacen : mapa.getAlmacenes()) {
-            if (almacen.getTipoAlmacen() != TipoAlmacen.CENTRAL) {
-                capacidadActualTanques.put(almacen.getTipoAlmacen(), almacen.getCapacidadEfectivaM3());
-                logger.info("Tanque " + almacen.getTipoAlmacen() + " recargado a " + almacen.getCapacidadEfectivaM3() + "m3");
-            }
-        }
-    }
-
-    /**
-     * Verifica si es el inicio de un nuevo día (00:00)
-     */
-    private boolean esInicioDeDia(LocalDateTime tiempo) {
-        return tiempo.getHour() == 0 && tiempo.getMinute() == 0;
     }
 
     /**
@@ -632,97 +480,14 @@ public class ACOAlgorithm {
         return camionesDisponibles;
     }
 
-    /**
-     * RF100: Gestión preventiva de inventario - priorizar tanques por tiempo de agotamiento
-     */
-    private void priorizarTanquesPorTiempoAgotamiento() {
-        // En una implementación real, se calcularía la tasa de consumo para estimar tiempo hasta agotamiento
-        // Simulación básica: priorizar según capacidad actual
-
-        // Esta información se usará al seleccionar tanques para reabastecimiento
-        // Se implementa a través del método encontrarTanqueMasConveniente en la clase Ant
-    }
-
-    /**
-     * Actualiza eventos dinámicos como averías, bloqueos, etc.
-     * @return true si hubo cambios en el estado del sistema
-     */
-    private boolean actualizarEventosDinamicos(LocalDateTime tiempoActual) {
-        boolean huboEventos = false;
-
-        // Actualizar estado de bloqueos (activar/desactivar según tiempo)
-        for (Bloqueo bloqueo : mapa.getBloqueos()) {
-            boolean estaBloqueadoAhora = estaActivoEnTiempo(bloqueo, tiempoActual);
-            // Si cambió el estado, hay un evento
-            if (estaBloqueadoAhora != estaActivoEnTiempo(bloqueo, tiempoActual.minusMinutes(1))) {
-                huboEventos = true;
-                if (estaBloqueadoAhora) {
-                    logger.info("Activado bloqueo en tiempo " + tiempoActual);
-                    debug("Activado bloqueo en tiempo: "+ tiempoActual);
-                } else {
-                    logger.info("Desactivado bloqueo en tiempo " + tiempoActual);
-                    debug("Desactivado bloqueo en tiempo: "+ tiempoActual);
-                }
-            }
-        }
-
-        // Procesar averías programadas
-        if (mapa.getAverias() != null) {
-            for (Averia averia : mapa.getAverias()) {
-                // Si la avería ocurre en este momento
-                if (averia.getFechaIncidente() != null &&
-                        Math.abs(ChronoUnit.MINUTES.between(averia.getFechaIncidente(), tiempoActual)) < parameters.getTiempoAvanceSimulacion()) {
-
-                    String codigoCamion = averia.getCodigo();
-
-                    // Buscar el camión correspondiente
-                    for (Camion camion : mapa.getFlota()) {
-                        if (camion.getIdC().equals(codigoCamion)) {
-                            // Marcar camión como averiado si no lo estaba ya
-                            if (!camion.isAveriado()) {
-                                camion.setAveriado(true);
-                                huboEventos = true;
-                                logger.info("Camión " + codigoCamion + " ha sufrido una avería tipo " + averia.getIncidente());
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        return huboEventos;
-    }
-
-    /**
-     * Actualiza el estado de los camiones según mantenimiento o averías
-     */
-    private void actualizarEstadoCamiones(LocalDateTime tiempoActual) {
-        for(Camion camion: mapa.getFlota()){
-            if(estaEnMantenimientoPreventivo(camion,tiempoActual)){
-                camion.setEstado(EstadoCamion.MANTENIMIENTO);
-                logger.info("Camión "+ camion.getIdC() + " no disponible por mantenimiento preventivo");
-                continue;
-            }
-
-            if(camion.isAveriado()){
-                camion.setEstado(EstadoCamion.MANTENIMIENTO);
-                logger.info("Camión "+ camion.getIdC() + " no disponible por mantenimiento correctivo");
-                continue;
-            }
-
-            camion.setEstado(EstadoCamion.DISPONIBLE);
-        }
-    }
-
-    private List<Camion> filtrarCamionesDisponibles(List<Camion> camiones){
+    private List<Camion> filtrarCamionesDisponibles(List<Camion> camiones) {
         return camiones.stream()
                 .filter(camion -> {
                     // Si el estado es null, considerarlo como no disponible
                     if (camion.getEstado() == null) {
                         // Arreglo en tiempo de ejecución: inicializar estado
                         camion.setEstado(EstadoCamion.DISPONIBLE);
-                        System.out.println("⚠️ Camión " + camion.getIdC() +
+                        System.out.println("⚠️ Camión " + camion.getId() +
                                 " tenía estado null, inicializado a DISPONIBLE");
                     }
                     return camion.getEstado() == EstadoCamion.DISPONIBLE;
@@ -771,7 +536,7 @@ public class ACOAlgorithm {
     }
 
     /**
-     * RF99: Ajuste dinámico de frecuencia de replanificación según densidad de pedidos
+     * Ajuste dinámico de frecuencia de replanificación según densidad de pedidos
      */
     private void ajustarFrecuenciaReplanificacion() {
         // Calcular densidad de pedidos (pedidos por hora)
@@ -817,6 +582,7 @@ public class ACOAlgorithm {
         double consumoTotal = 0;
         double penalizacionTiempo = 0;
         double penalizacionRestricciones = 0;
+        double penalizacionCombustible = 0;
 
         // Evaluar cada asignación camión-pedidos-ruta
         for (CamionAsignacion asignacion : solucion.getAsignaciones()) {
@@ -828,6 +594,7 @@ public class ACOAlgorithm {
             double pesoInicial = camion.getPesoBrutoTon() + AlgorithmUtils.calcularPesoCargaTotal(pedidos);
             double pesoActual = pesoInicial;
             LocalDateTime tiempoEstimado = tiempoActual;
+            double combustibleActual = camion.getGalones(); // Usar el combustible real del camión
 
             for (Ruta ruta : rutas) {
                 double distancia = ruta.getDistancia();
@@ -835,6 +602,18 @@ public class ACOAlgorithm {
                 // RF87: Cálculo dinámico de consumo de combustible
                 double consumoRuta = (distancia * pesoActual) / 180.0;
                 consumoTotal += consumoRuta;
+
+                // Restar combustible y verificar si es suficiente
+                combustibleActual -= consumoRuta;
+                if (combustibleActual < 0 && !ruta.isPuntoReabastecimiento()) {
+                    // Penalizar rutas donde se agota el combustible sin reabastecimiento
+                    penalizacionCombustible += 5000;
+                }
+
+                // Si es punto de reabastecimiento, rellenar combustible
+                if (ruta.isPuntoReabastecimiento()) {
+                    combustibleActual = 25.0;
+                }
 
                 // Actualizar tiempo estimado
                 tiempoEstimado = tiempoEstimado.plusMinutes((long) (distancia / parameters.getVelocidadPromedio() * 60));
@@ -875,7 +654,9 @@ public class ACOAlgorithm {
         penalizacionRestricciones += solucion.getPedidosNoAsignados().size() * 20000;
 
         // Calcular calidad total (inversamente proporcional a costos y penalizaciones)
-        return 1.0 / (1.0 + consumoTotal + penalizacionTiempo + penalizacionRestricciones);
+        double totalPenalizaciones = consumoTotal + penalizacionTiempo +
+                penalizacionRestricciones + penalizacionCombustible;
+        return 1.0 / (1.0 + totalPenalizaciones);
     }
 
     /**
@@ -910,32 +691,6 @@ public class ACOAlgorithm {
     }
 
     /**
-     * RF93: Genera datos para visualización del sistema
-     */
-    private void generarDatosVisualizacion(ACOSolution solucion, int iteracion) {
-        if (solucion == null) {
-            return;
-        }
-
-        // En una implementación real, esta información se enviaría a un componente de visualización
-        // Para este ejemplo, simplemente registramos información relevante
-
-        logger.info("Iteración " + iteracion + " - Calidad: " + String.format("%.6f", solucion.getCalidad()));
-        logger.info("Pedidos asignados: " + (mapa.getPedidos().size() - solucion.getPedidosNoAsignados().size()) +
-                " de " + mapa.getPedidos().size());
-
-        // Calcular estadísticas
-        double distanciaTotal = solucion.getAsignaciones().stream()
-                .flatMap(a -> a.getRutas().stream())
-                .mapToDouble(Ruta::getDistancia)
-                .sum();
-
-        logger.info("Distancia total estimada: " + String.format("%.2f", distanciaTotal) + " km");
-
-        // En un entorno real, los datos se transmitirían a un módulo de visualización gráfica
-    }
-
-    /**
      * Convierte una solución ACO al formato de rutas del dominio
      */
     private List<Rutas> convertirSolucionARutas(ACOSolution solucion) {
@@ -951,34 +706,35 @@ public class ACOAlgorithm {
             rutaEntity.setId(idRuta++);
             rutaEntity.setCamion(asignacion.getCamion());
 
-            // Convertir las rutas de la solución a lista de ubicaciones
-            List<Ubicacion> ubicaciones = new ArrayList<>();
-            for (Ruta ruta : asignacion.getRutas()) {
-                ubicaciones.add(ruta.getOrigen());
-                // La última ruta añade también el destino
-                if (asignacion.getRutas().indexOf(ruta) == asignacion.getRutas().size() - 1) {
-                    ubicaciones.add(ruta.getDestino());
+            // Utilizar directamente la ruta completa con todos los nodos intermedios
+            List<Ubicacion> ubicacionesCompletas = asignacion.getRutaCompleta();
+
+            // Verificar que la ruta completa no sea null
+            if (ubicacionesCompletas == null) {
+                // Si es null, generarla a partir de las rutas
+                ubicacionesCompletas = new ArrayList<>();
+                for (Ruta ruta : asignacion.getRutas()) {
+                    ubicacionesCompletas.add(ruta.getOrigen());
+                    // La última ruta añade también el destino
+                    if (asignacion.getRutas().indexOf(ruta) == asignacion.getRutas().size() - 1) {
+                        ubicacionesCompletas.add(ruta.getDestino());
+                    }
                 }
             }
 
-            rutaEntity.setUbicaciones(ubicaciones);
+            rutaEntity.setUbicaciones(ubicacionesCompletas);
 
-            // Calcular distancia total
+            // El resto del código sigue igual
             double distanciaTotal = asignacion.getRutas().stream()
                     .mapToDouble(Ruta::getDistancia)
                     .sum();
             rutaEntity.setDistanciaTotal(distanciaTotal);
 
-            // Calcular tiempo total (considerando velocidad promedio y tiempos de carga/descarga)
             double tiempoHoras = distanciaTotal / parameters.getVelocidadPromedio();
-            // Añadir 15 min por cada entrega (convertido a horas)
             tiempoHoras += asignacion.getPedidos().size() * (15.0 / 60.0);
-            // Añadir 15 min de mantenimiento rutinario al final
             tiempoHoras += 15.0 / 60.0;
-
             rutaEntity.setTiempoTotal(tiempoHoras);
 
-            // Calcular consumo total
             double pesoPromedio = (asignacion.getCamion().getPesoBrutoTon() +
                     AlgorithmUtils.calcularPesoCargaTotal(asignacion.getPedidos()) / 2);
             double consumoTotal = (distanciaTotal * pesoPromedio) / 180.0;
@@ -1343,11 +1099,6 @@ public class ACOAlgorithm {
      * Obtiene la ubicación del almacén central
      */
     private Ubicacion obtenerUbicacionAlmacenCentral() {
-        for (Almacen almacen : mapa.getAlmacenes()) {
-            if (almacen.getTipoAlmacen() == TipoAlmacen.CENTRAL) {
-                return almacen.getUbicacion();
-            }
-        }
         return new Ubicacion(12, 8); // Valor por defecto
     }
 
@@ -1380,45 +1131,6 @@ public class ACOAlgorithm {
         // Este cálculo debe ser coherente con la forma en que se asignan IDs en el grafo
         int ancho = mapa.getAncho() + 1;
         return ubicacion.getY() * ancho + ubicacion.getX();
-    }
-
-    /**
-     * Actualiza la heurística incorporando conocimiento histórico
-     */
-    private void actualizarHeuristicaConConocimientoHistorico() {
-        // Solo aplicar si hay información histórica
-        if (historicoSoluciones.isEmpty() || matrizFrecuenciaAristas == null) {
-            return;
-        }
-
-        // Factor de influencia del conocimiento histórico
-        double factorInfluencia = factorAprendizaje * (1.0 - (double)iteracion / parameters.getNumeroIteraciones());
-
-        // Obtener la matriz heurística original
-        double[][] matrizHeuristicaOriginal = heuristicCalculator.getMatrizHeuristicaActual();
-
-        // Crear copia para modificar
-        double[][] matrizModificada = new double[matrizHeuristicaOriginal.length][];
-        for (int i = 0; i < matrizHeuristicaOriginal.length; i++) {
-            matrizModificada[i] = matrizHeuristicaOriginal[i].clone();
-        }
-
-        // Aplicar conocimiento histórico
-        for (int i = 0; i < matrizFrecuenciaAristas.length; i++) {
-            for (int j = 0; j < matrizFrecuenciaAristas[i].length; j++) {
-                if (matrizFrecuenciaAristas[i][j] > 0 &&
-                        i < matrizModificada.length &&
-                        j < matrizModificada[i].length) {
-
-                    // Incrementar heurística según frecuencia histórica
-                    double incremento = Math.log(1 + matrizFrecuenciaAristas[i][j]) * factorInfluencia;
-                    matrizModificada[i][j] *= (1.0 + incremento);
-                }
-            }
-        }
-
-        // Establecer matriz modificada
-        heuristicCalculator.setMatrizHeuristicaActual(matrizModificada);
     }
 
     /**
@@ -1457,108 +1169,618 @@ public class ACOAlgorithm {
         return ordenadas.get(0); // Por defecto, la mejor
     }
 
-    /**
-     * Intensifica feromonas en las mejores rutas históricas
-     */
-    private void intensificarFeromonasHistoricas() {
-        if (historicoSoluciones.isEmpty()) {
-            return;
-        }
-
-        // Seleccionar la mejor solución histórica
-        ACOSolution mejorHistorica = historicoSoluciones.stream()
-                .max(Comparator.comparingDouble(ACOSolution::getCalidad))
-                .orElse(null);
-
-        if (mejorHistorica == null) {
-            return;
-        }
-
-        // Factor de intensificación
-        double factorIntensificacion = 2.0;
-
-        // Para cada asignación en la mejor solución
-        for (CamionAsignacion asignacion : mejorHistorica.getAsignaciones()) {
-            // Para cada ruta
-            for (Ruta ruta : asignacion.getRutas()) {
-                // Obtener nodos origen y destino
-                int origen = calcularIdNodo(ruta.getOrigen());
-                int destino = calcularIdNodo(ruta.getDestino());
-
-                // Intensificar feromona
-                if (origen >= 0 && destino >= 0 &&
-                        origen < pheromonesMatrix.getTamanio() &&
-                        destino < pheromonesMatrix.getTamanio()) {
-
-                    double valorActual = pheromonesMatrix.getValor(origen, destino);
-                    pheromonesMatrix.setValor(origen, destino, valorActual * factorIntensificacion);
-                    pheromonesMatrix.setValor(destino, origen, valorActual * factorIntensificacion);
-                }
-            }
-        }
-    }
-
-    /**
-     * Ajusta la estrategia de búsqueda ogi según el progreso del algoritmo
-     */
-    private void ajustarEstrategiaBusquedaLocal() {
-        // Calcular progreso (0 a 1)
-        double progreso = (double)iteracion / parameters.getNumeroIteraciones();
-
-        // En etapas iniciales, menos búsqueda ogi para favorecer diversificación
-        if (progreso < 0.3) {
-            factorBusquedaLocal = 0.4;
-        }
-        // En etapas intermedias, búsqueda ogi moderada
-        else if (progreso < 0.7) {
-            factorBusquedaLocal = 0.7;
-        }
-        // En etapas finales, intensa búsqueda ogi para refinar soluciones
-        else {
-            factorBusquedaLocal = 0.9;
-        }
-
-        // Si llevamos muchas iteraciones sin mejora, intensificar búsqueda ogi
-        if (iterSinMejora > parameters.getMaxIteracionesSinMejora() / 2) {
-            factorBusquedaLocal = Math.min(1.0, factorBusquedaLocal + 0.2);
-        }
-    }
-
-    /**
-     * Incorpora conocimiento histórico tras una perturbación
-     */
-    private void incorporarConocimientoHistorico() {
-        if (historicoSoluciones.isEmpty()) {
-            return;
-        }
-
-        // Tomar una solución buena aleatoria del histórico
-        int indice = new Random().nextInt(Math.min(historicoSoluciones.size(), 3));
-        ACOSolution solucionHistorica = historicoSoluciones.get(indice);
-
-        logger.info("Incorporando conocimiento de solución histórica con calidad " +
-                String.format("%.6f", solucionHistorica.getCalidad()));
-
-        // Reforzar feromonas en rutas de la solución histórica
-        for (CamionAsignacion asignacion : solucionHistorica.getAsignaciones()) {
-            for (Ruta ruta : asignacion.getRutas()) {
-                int origen = calcularIdNodo(ruta.getOrigen());
-                int destino = calcularIdNodo(ruta.getDestino());
-
-                // Asegurar que los IDs están dentro del rango
-                if (origen >= 0 && destino >= 0 &&
-                        origen < pheromonesMatrix.getTamanio() &&
-                        destino < pheromonesMatrix.getTamanio()) {
-
-                    // Reforzar feromona
-                    double valorActual = pheromonesMatrix.getValor(origen, destino);
-                    pheromonesMatrix.setValor(origen, destino, valorActual * 2.0);
-                    pheromonesMatrix.setValor(destino, origen, valorActual * 2.0);
-                }
-            }
-        }
-    }
-
     // Para compatibilidad con algunas funciones de la clase Ant
     private Random random = new Random();
+
+    /**
+     * Inicializa posiciones de camiones (todos en almacén central al inicio)
+     */
+    private Map<String, Ubicacion> inicializarPosicionesCamiones() {
+        Map<String, Ubicacion> posiciones = new HashMap<>();
+        Ubicacion almacenCentral = obtenerUbicacionAlmacenCentral();
+
+        for (Camion camion : mapa.getFlota()) {
+            posiciones.put(camion.getId(), almacenCentral);
+        }
+
+        return posiciones;
+    }
+
+    /**
+     * Procesa averías que ocurren en un momento dado
+     */
+    private List<String> procesarAverias(LocalDateTime tiempoActual) {
+        List<String> nuevasAverias = new ArrayList<>();
+
+        if (mapa.getAverias() != null) {
+            for (Averia averia : mapa.getAverias()) {
+                if (averia.getFechaIncidente() != null &&
+                        Math.abs(ChronoUnit.MINUTES.between(averia.getFechaIncidente(), tiempoActual)) < parameters.getTiempoAvanceSimulacion()) {
+
+                    String codigoCamion = averia.getCodigo();
+
+                    // Buscar el camión y marcarlo como averiado
+                    for (Camion camion : mapa.getFlota()) {
+                        if (camion.getId().equals(codigoCamion) && !camion.isAveriado()) {
+                            camion.setAveriado(true);
+                            camion.setEstado(EstadoCamion.MANTENIMIENTO);
+                            nuevasAverias.add(codigoCamion);
+                            logger.info("Camión " + codigoCamion + " ha sufrido una avería tipo " + averia.getIncidente());
+                            System.out.println("❌ AVERÍA: Camión " + codigoCamion + " - " + averia.getIncidente());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return nuevasAverias;
+    }
+
+    /**
+     * Actualiza posiciones de camiones según rutas planificadas
+     */
+    private void actualizarPosicionesCamiones(Map<String, Ubicacion> posiciones,
+                                              Map<String, List<Ruta>> rutasPlanificadas,
+                                              int minutosAvance) {
+        // Para cada camión con rutas planificadas
+        for (String idCamion : new ArrayList<>(rutasPlanificadas.keySet())) {
+            List<Ruta> rutas = rutasPlanificadas.get(idCamion);
+            if (rutas == null || rutas.isEmpty()) continue;
+
+            // Buscar el camión correspondiente y su posición actual
+            Camion camion = null;
+            for (Camion c : mapa.getFlota()) {
+                if (c.getId().equals(idCamion)) {
+                    camion = c;
+                    break;
+                }
+            }
+            if (camion == null) continue;
+
+            Ubicacion posicionActual = posiciones.get(idCamion);
+            if (posicionActual == null) continue;
+
+            // Encontrar la ruta actual y punto de progreso
+            double distanciaRestante = minutosAvance * (parameters.getVelocidadPromedio() / 60.0); // km
+            int rutaActual = 0;
+            double distanciaRecorrida = 0;
+
+            while (distanciaRestante > 0 && rutaActual < rutas.size()) {
+                Ruta ruta = rutas.get(rutaActual);
+
+                // Calcular peso actual para determinar consumo
+                double pesoActual = camion.getPesoBrutoTon();
+                for (int i = rutaActual; i < rutas.size(); i++) {
+                    if (rutas.get(i).isPuntoEntrega() && rutas.get(i).getPedidoEntrega() != null) {
+                        pesoActual += rutas.get(i).getPedidoEntrega().getVolumen() * 0.5; // 0.5 ton por m3
+                    }
+                }
+
+                // Si la distancia restante cubre toda la ruta
+                if (distanciaRestante >= ruta.getDistancia()) {
+                    // Moverse al final de esta ruta
+                    posicionActual = ruta.getDestino();
+                    distanciaRecorrida += ruta.getDistancia();
+                    distanciaRestante -= ruta.getDistancia();
+
+                    // Actualizar combustible consumido
+                    double consumo = (ruta.getDistancia() * pesoActual) / 180.0;
+                    int galonesActuales = camion.getGalones();
+                    camion.setGalones(Math.max(0, galonesActuales - (int)Math.ceil(consumo)));
+
+                    // Si es punto de entrega o reabastecimiento, detenerse por tiempo de operación
+                    if (ruta.isPuntoEntrega() || ruta.isPuntoReabastecimiento()) {
+                        int tiempoOperacion = ruta.isPuntoEntrega() ?
+                                parameters.getTiempoDescargaCliente() : parameters.getTiempoMantenimientoRutina();
+
+                        double distanciaEquivalente = tiempoOperacion * (parameters.getVelocidadPromedio() / 60.0);
+                        distanciaRestante -= distanciaEquivalente;
+                    }
+
+                    // Pasar a la siguiente ruta
+                    rutaActual++;
+                }
+                // Si solo cubre parte de la ruta, calcular posición intermedia
+                else {
+                    double proporcion = distanciaRestante / ruta.getDistancia();
+                    posicionActual = calcularPosicionIntermedia(ruta.getOrigen(), ruta.getDestino(), proporcion);
+
+                    // Actualizar combustible por distancia parcial
+                    double consumoParcial = (distanciaRestante * pesoActual) / 180.0;
+                    int galonesActuales = camion.getGalones();
+                    camion.setGalones(Math.max(0, galonesActuales - (int)Math.ceil(consumoParcial)));
+
+                    distanciaRecorrida += distanciaRestante;
+                    distanciaRestante = 0; // Ya no queda distancia por recorrer
+                }
+            }
+
+            // Actualizar posición y eliminar rutas completadas
+            posiciones.put(idCamion, posicionActual);
+            if (rutaActual > 0) {
+                rutasPlanificadas.put(idCamion, rutas.subList(rutaActual, rutas.size()));
+            }
+
+            // Registrar si el combustible es crítico
+            if (camion.getGalones() < parameters.getUmbralCombustibleCritico()) {
+                System.out.println("⚠️ ALERTA: Camión " + idCamion + " con combustible crítico: " +
+                        camion.getGalones() + " galones");
+            }
+        }
+    }
+
+    /**
+     * Calcula posición intermedia entre dos puntos
+     */
+    private Ubicacion calcularPosicionIntermedia(Ubicacion origen, Ubicacion destino, double proporcion) {
+        int x = origen.getX() + (int) Math.round((destino.getX() - origen.getX()) * proporcion);
+        int y = origen.getY() + (int) Math.round((destino.getY() - origen.getY()) * proporcion);
+
+        return new Ubicacion(x, y);
+    }
+
+    /**
+     * Detecta entregas completadas en el periodo actual
+     */
+    private List<Pedido> detectarEntregasCompletadas(Map<String, Ubicacion> posiciones,
+                                                     Map<String, List<Ruta>> rutasPlanificadas,
+                                                     LocalDateTime tiempoActual) {
+        List<Pedido> pedidosEntregados = new ArrayList<>();
+
+        // Para cada camión
+        for (String idCamion : new ArrayList<>(rutasPlanificadas.keySet())) {
+            List<Ruta> rutas = rutasPlanificadas.get(idCamion);
+
+            if (rutas == null || rutas.isEmpty()) continue;
+
+            // Verificar si la primera ruta es una entrega y si el camión está en esa posición
+            Ruta primeraRuta = rutas.get(0);
+            if (primeraRuta.isPuntoEntrega() &&
+                    posiciones.get(idCamion).equals(primeraRuta.getDestino()) &&
+                    primeraRuta.getPedidoEntrega() != null) {
+
+                // Marcar pedido como entregado
+                pedidosEntregados.add(primeraRuta.getPedidoEntrega());
+                System.out.println("✅ ENTREGA: Pedido #" + primeraRuta.getPedidoEntrega().getIdPedido() +
+                        " por camión " + idCamion);
+            }
+        }
+
+        return pedidosEntregados;
+    }
+
+    /**
+     * Obtiene los nuevos pedidos que llegan para la ventana de simulación actual
+     */
+    private List<Pedido> obtenerNuevosPedidos(LocalDateTime tiempoActual, List<Pedido> pedidosPendientes) {
+        List<Pedido> nuevosPedidos = new ArrayList<>();
+
+        // Calcular la ventana de tiempo para este intervalo
+        LocalDateTime tiempoAnterior = tiempoActual.minusMinutes(parameters.getTiempoAvanceSimulacion());
+
+        for (Pedido pedido : mapa.getPedidos()) {
+            // Un pedido es nuevo si su fecha de registro está en este intervalo de tiempo
+            if (pedido.getFechaRegistro().isAfter(tiempoAnterior) &&
+                    !pedido.getFechaRegistro().isAfter(tiempoActual)) {
+
+                // Verificar que no esté ya en la lista de pendientes
+                boolean yaExiste = pedidosPendientes.stream()
+                        .anyMatch(p -> p.getIdPedido() == pedido.getIdPedido());
+
+                if (!yaExiste) {
+                    nuevosPedidos.add(pedido);
+                    System.out.println("📦 NUEVO PEDIDO: #" + pedido.getIdPedido() +
+                            " en (" + pedido.getDestino().getX() + "," + pedido.getDestino().getY() + ")");
+                }
+            }
+        }
+
+        return nuevosPedidos;
+    }
+
+    /**
+     * Extrae rutas planificadas desde una solución ACO
+     */
+    private Map<String, List<Ruta>> extraerRutasPlanificadas(ACOSolution solucion) {
+        Map<String, List<Ruta>> rutasPorCamion = new HashMap<>();
+
+        for (CamionAsignacion asignacion : solucion.getAsignaciones()) {
+            Camion camion = asignacion.getCamion();
+            rutasPorCamion.put(camion.getId(), new ArrayList<>(asignacion.getRutas()));
+        }
+
+        return rutasPorCamion;
+    }
+
+    /**
+     * Visualiza el estado actual (consola)
+     */
+    private void visualizarEstadoActual(LocalDateTime tiempo,
+                                        Map<String, Ubicacion> posiciones,
+                                        Map<String, List<Ruta>> rutas,
+                                        List<Pedido> pendientes) {
+        System.out.println("\n--- ESTADO ACTUAL: " + tiempo + " ---");
+        System.out.println("Camiones en ruta: " + posiciones.size());
+        System.out.println("Pedidos pendientes: " + pendientes.size());
+
+        // Detalles de posición de cada camión
+        for (String idCamion : posiciones.keySet()) {
+            Ubicacion pos = posiciones.get(idCamion);
+            System.out.println("🚚 " + idCamion + " en (" + pos.getX() + "," + pos.getY() + ")");
+
+            // Siguientes destinos planificados
+            List<Ruta> rutasCamion = rutas.get(idCamion);
+            if (rutasCamion != null && !rutasCamion.isEmpty()) {
+                System.out.println("   Próximo destino: (" +
+                        rutasCamion.get(0).getDestino().getX() + "," +
+                        rutasCamion.get(0).getDestino().getY() + ") - " +
+                        (rutasCamion.get(0).isPuntoEntrega() ? "ENTREGA" :
+                                rutasCamion.get(0).isPuntoReabastecimiento() ? "REABASTECIMIENTO" : "REGRESO"));
+            }
+        }
+    }
+
+    /**
+     * Ejecuta algoritmo ACO con estado actual específico
+     */
+    private ACOSolution ejecutarACOConEstadoActual(EstadoActual estado, LocalDateTime horizonteFinal) {
+        // Persistir matriz de feromonas o crear una nueva
+        if (this.pheromonesMatrix != null) {
+            // Aplicar evaporación entre planificaciones para mantener
+            // aprendizaje pero evitar estancamiento
+            this.pheromonesMatrix.aplicarEvaporacionEntrePlanificaciones(factorEvaporacionEntrePlanificaciones);
+            System.out.println("🧠 Utilizando matriz de feromonas persistida de replanificación anterior");
+        } else {
+            // Primera ejecución, inicializar nueva matriz
+            this.pheromonesMatrix = new PheromoneMatrix(grafo.getTotalNodos(), parameters.getFeromonaInicial());
+            System.out.println("🆕 Inicializando nueva matriz de feromonas");
+        }
+
+        // Siempre recalcular heurística (esta depende de estado actual)
+        this.heuristicCalculator = new HeuristicCalculator(grafo, parameters);
+
+        // Actualizar heurística según estado actual
+        heuristicCalculator.actualizarHeuristicaDinamica(
+                estado.getPedidosPendientes(),
+                mapa.getBloqueos(),
+                estado.getTiempoActual(),
+                capacidadActualTanques
+        );
+
+        for (Ant hormiga : colony.getHormigas()) {
+            hormiga.setPosicionesActuales(estado.getPosicionesCamiones());
+            // Añadir debugging para confirmar que las posiciones se están pasando
+            System.out.println("💡 Hormiga #" + hormiga.getId() + " configurada con " +
+                    estado.getPosicionesCamiones().size() + " posiciones de camiones");
+        }
+
+        // Construcción de soluciones por cada hormiga
+        List<ACOSolution> soluciones = new ArrayList<>();
+        ACOSolution mejorSolucionIteracion = null;
+        double mejorCalidadIteracion = Double.NEGATIVE_INFINITY;
+
+        for (int i = 0; i < parameters.getNumeroHormigas(); i++) {
+            // Construir solución con estado actual
+            Ant hormiga = colony.getHormigas().get(i);
+
+            // Configurar hormiga con posiciones actuales
+            hormiga.setPosicionesActuales(estado.getPosicionesCamiones());
+
+            // Si es una de las primeras hormigas, usar solución histórica
+            if (i < 2 && !historicoSoluciones.isEmpty() && random.nextDouble() < factorAprendizaje) {
+                ACOSolution solucionGuia = seleccionarSolucionHistoricaAleatoria();
+                hormiga.setSolucionGuia(solucionGuia);
+            }
+
+            // Construir solución desde estado actual
+            ACOSolution solucion = hormiga.construirSolucionDesdeEstadoActual(
+                    estado.getPedidosPendientes(),
+                    estado.getCamionesDisponibles(),
+                    pheromonesMatrix,
+                    heuristicCalculator,
+                    estado.getTiempoActual(),
+                    horizonteFinal,
+                    grafo,
+                    capacidadActualTanques
+            );
+
+            // Evaluar solución
+            double calidad = evaluarSolucion(solucion, estado.getTiempoActual());
+            solucion.setCalidad(calidad);
+            soluciones.add(solucion);
+
+            // Actualizar mejor solución
+            if (calidad > mejorCalidadIteracion) {
+                mejorCalidadIteracion = calidad;
+                mejorSolucionIteracion = solucion;
+            }
+        }
+
+        // Actualizar feromonas
+        pheromonesMatrix.actualizarFeromonas(soluciones, parameters.getFactorEvaporacion());
+
+        // Actualizar histórico
+        if (mejorSolucionIteracion != null) {
+            historicoSoluciones.add(mejorSolucionIteracion.clone());
+            if (historicoSoluciones.size() > 10) {
+                historicoSoluciones.remove(0);
+            }
+            actualizarMatrizFrecuencia(mejorSolucionIteracion);
+        }
+
+        return mejorSolucionIteracion;
+    }
+
+    /**
+     * Guarda estado para resultado final
+     */
+    private void guardarEstadoParaResultado(List<Rutas> rutasCompletas, ACOSolution solucion, LocalDateTime tiempo) {
+        List<Rutas> rutasConvertidas = convertirSolucionARutas(solucion);
+
+        // Añadir a las rutas completas
+        rutasCompletas.addAll(rutasConvertidas);
+    }
+
+    /**
+     * Verifica si el sistema está en estado de colapso
+     */
+    private boolean detectarEstadoColapso(List<Pedido> pedidosPendientes, LocalDateTime tiempoActual) {
+        if (pedidosPendientes.isEmpty()) {
+            return false;
+        }
+
+        // Contar pedidos con plazo vencido
+        long pedidosVencidos = pedidosPendientes.stream()
+                .filter(p -> p.getFechaLimite().isBefore(tiempoActual))
+                .count();
+
+        double porcentajeVencidos = (double) pedidosVencidos / pedidosPendientes.size();
+
+        return porcentajeVencidos > parameters.getUmbralColapso();
+    }
+
+    private void verificarEstadoCombustibleFlota() {
+        for (Camion camion : mapa.getFlota()) {
+            if (camion.getGalones() < parameters.getUmbralCombustibleCritico() &&
+                    camion.getEstado() == EstadoCamion.DISPONIBLE) {
+                System.out.println("⚠️ ALERTA: Camión " + camion.getId() +
+                        " con nivel crítico de combustible: " + camion.getGalones() + " galones");
+            }
+
+            if (camion.getGalones() <= 0) {
+                System.out.println("❌ ERROR: Camión " + camion.getId() +
+                        " sin combustible, marcando como no disponible");
+                camion.setEstado(EstadoCamion.MANTENIMIENTO);
+            }
+        }
+    }
+
+    /**
+     * Ejecuta múltiples iteraciones de ACO dinámico para un horizonte específico
+     */
+    private ACOSolution ejecutarACODinamicoConMultiplesIteraciones(EstadoActual estadoInicial,
+                                                                   LocalDateTime horizonteFinal) {
+        // Persistir matriz de feromonas o crear una nueva
+        if (this.pheromonesMatrix != null) {
+            this.pheromonesMatrix.aplicarEvaporacionEntrePlanificaciones(factorEvaporacionEntrePlanificaciones);
+            System.out.println("🧠 Utilizando matriz de feromonas persistida de replanificación anterior");
+        } else {
+            this.pheromonesMatrix = new PheromoneMatrix(grafo.getTotalNodos(), parameters.getFeromonaInicial());
+            System.out.println("🆕 Inicializando nueva matriz de feromonas");
+        }
+
+        // Inicializar heurística
+        this.heuristicCalculator = new HeuristicCalculator(grafo, parameters);
+
+        // Mejor solución encontrada en todas las iteraciones
+        ACOSolution mejorSolucionGlobalACO = null;
+        double mejorCalidadGlobalACO = Double.NEGATIVE_INFINITY;
+
+        // Estado actual del sistema (inicialmente el proporcionado)
+        EstadoActual estadoActual = estadoInicial;
+
+        // Ejecutar múltiples iteraciones de ACO
+        for (int iterACO = 0; iterACO < parameters.getNumeroIteraciones(); iterACO++) {
+            System.out.println("\n🐜 ITERACIÓN ACO: " + iterACO);
+
+            // Actualizar heurística según estado actual
+            heuristicCalculator.actualizarHeuristicaDinamica(
+                    estadoActual.getPedidosPendientes(),
+                    mapa.getBloqueos(),
+                    estadoActual.getTiempoActual(),
+                    capacidadActualTanques
+            );
+
+            // Configurar hormigas con posiciones actuales
+            for (Ant hormiga : colony.getHormigas()) {
+                hormiga.setPosicionesActuales(estadoActual.getPosicionesCamiones());
+            }
+
+            // Construcción de soluciones por cada hormiga
+            List<ACOSolution> soluciones = new ArrayList<>();
+            ACOSolution mejorSolucionIteracion = null;
+            double mejorCalidadIteracion = Double.NEGATIVE_INFINITY;
+
+            // Cada hormiga construye una solución
+            for (int i = 0; i < parameters.getNumeroHormigas(); i++) {
+                Ant hormiga = colony.getHormigas().get(i);
+
+                // Si es una de las primeras hormigas, usar solución histórica
+                if (i < 2 && !historicoSoluciones.isEmpty() && random.nextDouble() < factorAprendizaje) {
+                    ACOSolution solucionGuia = seleccionarSolucionHistoricaAleatoria();
+                    hormiga.setSolucionGuia(solucionGuia);
+                }
+
+                // Construir solución
+                ACOSolution solucion = hormiga.construirSolucionDesdeEstadoActual(
+                        estadoActual.getPedidosPendientes(),
+                        estadoActual.getCamionesDisponibles(),
+                        pheromonesMatrix,
+                        heuristicCalculator,
+                        estadoActual.getTiempoActual(),
+                        horizonteFinal,
+                        grafo,
+                        capacidadActualTanques
+                );
+
+                // Evaluar solución
+                double calidad = evaluarSolucion(solucion, estadoActual.getTiempoActual());
+                solucion.setCalidad(calidad);
+                soluciones.add(solucion);
+
+                // Actualizar mejor solución de esta iteración
+                if (calidad > mejorCalidadIteracion) {
+                    mejorCalidadIteracion = calidad;
+                    mejorSolucionIteracion = solucion;
+                }
+            }
+
+            // Actualizar feromonas basado en soluciones de esta iteración
+            pheromonesMatrix.actualizarFeromonas(soluciones, parameters.getFactorEvaporacion());
+
+            // Aplicar búsqueda local a la mejor solución de esta iteración
+            if (mejorSolucionIteracion != null && busquedaLocalActiva) {
+                aplicarBusquedaLocal(mejorSolucionIteracion);
+                // Re-evaluar después de la búsqueda local
+                mejorSolucionIteracion.setCalidad(evaluarSolucion(mejorSolucionIteracion, estadoActual.getTiempoActual()));
+            }
+
+            // Actualizar mejor solución global
+            if (mejorSolucionIteracion != null &&
+                    mejorSolucionIteracion.getCalidad() > mejorCalidadGlobalACO) {
+                mejorCalidadGlobalACO = mejorSolucionIteracion.getCalidad();
+                mejorSolucionGlobalACO = mejorSolucionIteracion;
+
+                System.out.println("🌟 Nueva mejor solución global encontrada - Calidad: " +
+                        String.format("%.6f", mejorCalidadGlobalACO));
+            }
+
+            // Simulación de cambios dinámicos entre iteraciones
+            estadoActual = simularCambiosDinamicos(estadoActual, iterACO);
+
+            // Registrar solución para histórico
+            if (mejorSolucionIteracion != null) {
+                historicoSoluciones.add(mejorSolucionIteracion.clone());
+                if (historicoSoluciones.size() > 10) {
+                    historicoSoluciones.remove(0);
+                }
+                actualizarMatrizFrecuencia(mejorSolucionIteracion);
+            }
+
+            // Log de la iteración
+            System.out.println("🔄 Iteración ACO " + iterACO + " - Calidad: " +
+                    String.format("%.6f", mejorCalidadIteracion) +
+                    " - Pedidos: " + (mejorSolucionIteracion != null ?
+                    mejorSolucionIteracion.getNumeroPedidosAsignados() : 0) +
+                    "/" + estadoActual.getPedidosPendientes().size());
+        }
+
+        // Log final de ACO
+        if (mejorSolucionGlobalACO != null) {
+            loggerACO.logIteracion(
+                    iteracion,
+                    mejorSolucionGlobalACO,
+                    estadoInicial.getCamionesDisponibles(),
+                    estadoInicial.getPedidosPendientes().size(),
+                    System.currentTimeMillis() - tiempoInicioEjecucion
+            );
+            monitor.mostrarRutasDetalladas(mejorSolucionGlobalACO);
+        }
+
+        // Actualizar mejores soluciones globales para todo el algoritmo
+        if (mejorSolucionGlobalACO != null && mejorSolucionGlobalACO.getCalidad() > mejorCalidadGlobal) {
+            mejorSolucionGlobal = mejorSolucionGlobalACO;
+            mejorCalidadGlobal = mejorSolucionGlobalACO.getCalidad();
+        }
+
+        return mejorSolucionGlobalACO;
+    }
+
+    /**
+     * Simula cambios dinámicos en el sistema entre iteraciones de ACO
+     * (nuevos pedidos, averías, etc.)
+     */
+    private EstadoActual simularCambiosDinamicos(EstadoActual estadoActual, int iteracion) {
+        // Crear una copia del estado actual
+        EstadoActual nuevoEstado = new EstadoActual(
+                new HashMap<>(estadoActual.getPosicionesCamiones()),
+                new ArrayList<>(estadoActual.getCamionesDisponibles()),
+                new ArrayList<>(estadoActual.getPedidosPendientes()),
+                estadoActual.getTiempoActual()
+        );
+
+        // 1. Simular llegada de nuevos pedidos (solo en algunas iteraciones para simular naturaleza estocástica)
+        if (iteracion % 3 == 0) { // Cada 3 iteraciones
+            // Generar pedidos sintéticos o usar pedidos reales con timestamps futuros
+            List<Pedido> nuevosPedidos = simularNuevosPedidos(estadoActual.getTiempoActual());
+
+            if (!nuevosPedidos.isEmpty()) {
+                nuevoEstado.getPedidosPendientes().addAll(nuevosPedidos);
+                System.out.println("📦 Simulación: " + nuevosPedidos.size() +
+                        " nuevos pedidos en iteración ACO " + iteracion);
+            }
+        }
+
+        // 2. Simular averías aleatorias (con probabilidad baja)
+        if (random.nextDouble() < 0.05) { // 5% de probabilidad de avería
+            Camion camionAveriado = simularAveriaCamion(nuevoEstado.getCamionesDisponibles());
+
+            if (camionAveriado != null) {
+                // Remover camión de disponibles
+                nuevoEstado.getCamionesDisponibles().remove(camionAveriado);
+
+                System.out.println("🔧 Simulación: Avería de camión " +
+                        camionAveriado.getId() + " en iteración ACO " + iteracion);
+            }
+        }
+
+        return nuevoEstado;
+    }
+
+    /**
+     * Simula la llegada de nuevos pedidos
+     */
+    private List<Pedido> simularNuevosPedidos(LocalDateTime tiempo) {
+        // Para testing, podemos usar pedidos reales con timestamps cercanos al futuro
+        return mapa.getPedidos().stream()
+                .filter(p -> p.getFechaRegistro().isAfter(tiempo) &&
+                        p.getFechaRegistro().isBefore(tiempo.plusMinutes(30)) &&
+                        !pedidosProcesados.contains(p.getIdPedido()))
+                .peek(p -> pedidosProcesados.add(p.getIdPedido()))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Simula una avería en un camión aleatorio
+     */
+    private Camion simularAveriaCamion(List<Camion> camionesDisponibles) {
+        if (camionesDisponibles.isEmpty()) {
+            return null;
+        }
+
+        // Seleccionar un camión aleatorio
+        int idx = random.nextInt(camionesDisponibles.size());
+        return camionesDisponibles.get(idx);
+    }
+
+    /**
+     * Clase interna para representar estado actual del sistema
+     */
+    @Getter @Setter
+    private static class EstadoActual {
+        private Map<String, Ubicacion> posicionesCamiones;
+        private List<Camion> camionesDisponibles;
+        private List<Pedido> pedidosPendientes;
+        private LocalDateTime tiempoActual;
+
+        public EstadoActual(Map<String, Ubicacion> posicionesCamiones, List<Camion> camionesDisponibles,
+                            List<Pedido> pedidosPendientes, LocalDateTime tiempoActual) {
+            this.posicionesCamiones = posicionesCamiones;
+            this.camionesDisponibles = camionesDisponibles;
+            this.pedidosPendientes = pedidosPendientes;
+            this.tiempoActual = tiempoActual;
+        }
+    }
 }
+

@@ -3,6 +3,7 @@ package pucp.edu.glp.glpdp1.api;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import pucp.edu.glp.glpdp1.algorithm.aco.ACOParameters;
@@ -12,6 +13,7 @@ import pucp.edu.glp.glpdp1.service.MapaService;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -111,108 +113,67 @@ public class MapaController {
 
     @PostMapping("/planificar-rutas")
     public ResponseEntity<?> planificarRutas(
-            @RequestParam(required = false) Map<String, String> requestParams,
-            @RequestParam(required = false, defaultValue = "dia") String escenario,
+            @RequestParam(defaultValue = "dia") String escenario,
             @RequestParam(required = false) String fechaInicio,
             @RequestParam(required = false) String fechaFin) {
 
         try {
-            if (requestParams != null) {
-                if (requestParams.containsKey("escenario")) {
-                    escenario = requestParams.get("escenario");
-                }
-                if (requestParams.containsKey("fechaInicio")) {
-                    fechaInicio = requestParams.get("fechaInicio");
-                }
-                if (requestParams.containsKey("fechaFin")) {
-                    fechaFin = requestParams.get("fechaFin");
-                }
+            // ——— 1) Parseo de fechas ———
+            if (StringUtils.hasText(fechaInicio)) {
+                mapa.setFechaInicio(LocalDateTime.parse(fechaInicio));
             }
-            // Configurar fechas para simulación si se proporcionan
-            if (fechaInicio != null && !fechaInicio.isEmpty()) {
-                LocalDateTime inicio = LocalDateTime.parse(fechaInicio);
-                System.out.println("Fecha de inicio: " + inicio);
-                mapa.setFechaInicio(inicio);
+            if (StringUtils.hasText(fechaFin)) {
+                mapa.setFechaFin(LocalDateTime.parse(fechaFin));
             }
 
-            if (fechaFin != null && !fechaFin.isEmpty()) {
-                LocalDateTime fin = LocalDateTime.parse(fechaFin);
-                System.out.println("Fecha de fin: " + fin);
-                mapa.setFechaFin(fin);
-            }
-
-            List<Pedido> pedidosFiltrados = filtrarPedidosPorRangoFecha(
-                    mapa.getPedidos(),
-                    mapa.getFechaInicio(),
-                    mapa.getFechaFin()
+            // ——— 2) Filtrar pedidos por rango ———
+            List<Pedido> pedidosFilt = filtrarPedidosPorRangoFecha(
+                    mapa.getPedidos(), mapa.getFechaInicio(), mapa.getFechaFin()
             );
 
-            Mapa mapaFiltrado = new Mapa(mapa.getAncho(), mapa.getAlto());
-            mapaFiltrado.setPedidos(pedidosFiltrados);
-            mapaFiltrado.setBloqueos(mapa.getBloqueos());
-            mapaFiltrado.setAlmacenes(mapa.getAlmacenes());
-            mapaFiltrado.setAverias(mapa.getAverias());
-            mapaFiltrado.setFlota(mapa.getFlota());
-            mapaFiltrado.setFechaInicio(mapa.getFechaInicio());
-            mapaFiltrado.setFechaFin(mapa.getFechaFin());
+            // ——— 3) Preparar mapa para ACO ———
+            Mapa m = new Mapa(mapa.getAncho(), mapa.getAlto());
+            m.setPedidos(pedidosFilt);
+            m.setBloqueos(mapa.getBloqueos());
+            m.setAlmacenes(mapa.getAlmacenes());
+            m.setAverias(mapa.getAverias());
+            m.setFlota(mapa.getFlota());
+            m.setFechaInicio(mapa.getFechaInicio());
+            m.setFechaFin(mapa.getFechaFin());
 
-            // Configurar parámetros según el escenario seleccionado
-            ACOParameters params;
-            switch (escenario.toLowerCase()) {
-                case "dia":
-                case "diario":
-                    // 1. Escenario de operaciones día a día
-                    params = ACOParameters.getConfiguracionEquilibrada();
-                    params.setNumeroIteraciones(50);  // Menos iteraciones para respuesta rápida
-                    break;
+            // ——— 4) Configurar parámetros ACO según escenario ———
+            ACOParameters params = switch (escenario.toLowerCase()) {
+                case "semana", "semanal" -> {
+                    var p = ACOParameters.getConfiguracionRapida();
+                    p.setNumeroIteraciones(5);
+                    p.setTiempoAvanceSimulacion(15);
+                    asegurarPeriodo(mapa, 7, ChronoUnit.DAYS);
+                    yield p;
+                }
+                case "colapso" -> {
+                    var p = ACOParameters.getConfiguracionCalidad();
+                    p.activarDeteccionColapsoSensible();
+                    p.setNumeroIteraciones(5000);
+                    p.setUmbralColapso(0.15);
+                    asegurarPeriodo(mapa, 1, ChronoUnit.MONTHS);
+                    yield p;
+                }
+                default -> {
+                    var p = ACOParameters.getConfiguracionEquilibrada();
+                    p.setNumeroIteraciones(50);
+                    yield p;
+                }
+            };
 
-                case "semana":
-                case "semanal":
-                    // 2. Escenario de simulación semanal (7 días)
-                    params = ACOParameters.getConfiguracionRapida();
-                    params.setNumeroIteraciones(25);  // Más iteraciones para mejor calidad
-                    // Configurar para que termine en tiempo adecuado (20-50 minutos)
-                    params.setTiempoAvanceSimulacion(15);  // 30 minutos por iteración
+            // ——— 5) Ejecutar ACO y devolver resultado ———
+            var rutas = acoAlgorithmService.generarRutasOptimizadas(m, params);
+            mapa.setRutas(rutas);
+            return ResponseEntity.ok(rutas);
 
-                    // Si no se especifica un período, configurar 7 días por defecto
-                    if (mapa.getFechaInicio() == null) {
-                        mapa.setFechaInicio(LocalDateTime.now());
-                    }
-                    if (mapa.getFechaFin() == null) {
-                        mapa.setFechaFin(mapa.getFechaInicio().plusDays(7));
-                    }
-                    break;
-
-                case "colapso":
-                    // 3. Escenario de simulación hasta colapso
-                    params = ACOParameters.getConfiguracionCalidad();
-                    params.activarDeteccionColapsoSensible();
-                    params.setNumeroIteraciones(5000);  // Muchas iteraciones para llegar al colapso
-                    params.setUmbralColapso(0.15);      // Umbral de colapso más sensible (15%)
-
-                    // Si no se especifica un período, configurar un período largo
-                    if (mapa.getFechaInicio() == null) {
-                        mapa.setFechaInicio(LocalDateTime.now());
-                    }
-                    if (mapa.getFechaFin() == null) {
-                        mapa.setFechaFin(mapa.getFechaInicio().plusMonths(1)); // Simulación de hasta un mes
-                    }
-                    break;
-
-                default:
-                    return ResponseEntity.badRequest().body("Escenario no reconocido. Use 'dia', 'semana' o 'colapso'");
-            }
-
-            // Ejecutar algoritmo ACO
-            List<Rutas> rutasOptimizadas = acoAlgorithmService.generarRutasOptimizadas(mapaFiltrado, params);
-
-            // Guardar las rutas en el mapa
-            mapa.setRutas(rutasOptimizadas);
-
-            return ResponseEntity.ok(rutasOptimizadas);
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body("Error al planificar rutas: " + e.getMessage());
+            return ResponseEntity
+                    .badRequest()
+                    .body("Error al planificar rutas: " + e.getMessage());
         }
     }
 
@@ -357,5 +318,15 @@ public class MapaController {
                             !fechaPedido.isAfter(fechaFin);
                 })
                 .collect(Collectors.toList());
+    }
+
+    // Auxiliar para poner fechas por defecto si hacen falta
+    private void asegurarPeriodo(Mapa mapa, long cantidad, ChronoUnit unidad) {
+        if (mapa.getFechaInicio() == null) {
+            mapa.setFechaInicio(LocalDateTime.now());
+        }
+        if (mapa.getFechaFin() == null) {
+            mapa.setFechaFin(mapa.getFechaInicio().plus(cantidad, unidad));
+        }
     }
 }

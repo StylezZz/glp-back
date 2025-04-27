@@ -82,7 +82,7 @@ public class PedidoService {
             // Establecer la fecha de registro
             // Asumimos una fecha base y sumamos días, horas y minutos
             LocalDateTime fechaBase = LocalDateTime.of(2025, 5, 1, 0, 0);
-            LocalDateTime fechaRegistro = fechaBase.plusDays(dia).plusHours(hora).plusMinutes(minuto);
+            LocalDateTime fechaRegistro = fechaBase.plusDays(dia - 1).plusHours(hora).plusMinutes(minuto);
             pedido.setFechaRegistro(fechaRegistro);
 
             // Establecer otros campos

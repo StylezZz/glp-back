@@ -3,7 +3,9 @@ package pucp.edu.glp.glpdp1.algorithm.model;
 import lombok.Getter;
 import lombok.Setter;
 import pucp.edu.glp.glpdp1.algorithm.utils.AlgorithmUtils;
+import pucp.edu.glp.glpdp1.algorithm.utils.DistanceCalculator;
 import pucp.edu.glp.glpdp1.domain.Camion;
+import pucp.edu.glp.glpdp1.domain.Ubicacion;
 import pucp.edu.glp.glpdp1.domain.Pedido;
 
 import java.util.ArrayList;
@@ -101,7 +103,7 @@ public class CamionAsignacion {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Asignación de camión ").append(camion.getIdC()).append("\n");
+        sb.append("Asignación de camión ").append(camion.getId()).append("\n");
         sb.append("Pedidos: ").append(pedidos.size()).append("\n");
         sb.append("Rutas: ").append(rutas.size()).append("\n");
         sb.append("Distancia total: ").append(String.format("%.2f", getDistanciaTotal())).append(" km\n");
@@ -109,4 +111,94 @@ public class CamionAsignacion {
 
         return sb.toString();
     }
+
+    private List<Ubicacion> rutaCompleta;
+
+    /**
+     * Obtiene la ruta completa con todos los nodos intermedios
+     * @return Lista con todas las ubicaciones intermedias
+     */
+    public List<Ubicacion> getRutaCompleta() {
+        if (rutaCompleta == null) {
+            // Si no hay ruta completa generada, generarla desde el almacén central (punto predeterminado)
+            Ubicacion inicioDefault = new Ubicacion(12, 8); // Almacén central
+            rutaCompleta = generarRutaDesde(inicioDefault);
+        }
+        return rutaCompleta;
+    }
+
+    /**
+     * Genera la ruta completa para esta asignación
+     */
+    private void generarRutaCompleta() {
+        rutaCompleta = new ArrayList<>();
+
+        // Punto de partida (almacén central)
+        Ubicacion inicio = new Ubicacion(12, 8); // Almacén central
+        rutaCompleta.add(inicio);
+
+        // Para cada pedido, agregar ruta completa
+        for (Pedido pedido : pedidos) {
+            List<Ubicacion> segmento = DistanceCalculator.generarRutaCompleta(
+                    rutaCompleta.get(rutaCompleta.size() - 1),
+                    pedido.getDestino()
+            );
+
+            // Saltamos el primer punto para evitar duplicados
+            for (int i = 1; i < segmento.size(); i++) {
+                rutaCompleta.add(segmento.get(i));
+            }
+        }
+
+        // Agregar retorno al almacén central
+        List<Ubicacion> retorno = DistanceCalculator.generarRutaCompleta(
+                rutaCompleta.get(rutaCompleta.size() - 1),
+                inicio
+        );
+
+        // Saltamos el primer punto para evitar duplicados
+        for (int i = 1; i < retorno.size(); i++) {
+            rutaCompleta.add(retorno.get(i));
+        }
+    }
+
+    /**
+     * Genera una ruta completa comenzando desde una posición específica
+     * @param posicionInicial Posición desde donde comenzar la ruta
+     * @return Lista con todas las ubicaciones de la ruta
+     */
+    public List<Ubicacion> generarRutaDesde(Ubicacion posicionInicial) {
+        List<Ubicacion> ruta = new ArrayList<>();
+
+        // Usar la posición inicial proporcionada
+        ruta.add(posicionInicial);
+
+        // Para cada pedido, agregar ruta completa
+        for (Pedido pedido : pedidos) {
+            List<Ubicacion> segmento = DistanceCalculator.generarRutaCompleta(
+                    ruta.get(ruta.size() - 1),
+                    pedido.getDestino()
+            );
+
+            // Saltamos el primer punto para evitar duplicados
+            for (int i = 1; i < segmento.size(); i++) {
+                ruta.add(segmento.get(i));
+            }
+        }
+
+        // Agregar retorno al almacén central
+        Ubicacion almacenCentral = new Ubicacion(12, 8); // Posición del almacén central
+        List<Ubicacion> retorno = DistanceCalculator.generarRutaCompleta(
+                ruta.get(ruta.size() - 1),
+                almacenCentral
+        );
+
+        // Saltamos el primer punto para evitar duplicados
+        for (int i = 1; i < retorno.size(); i++) {
+            ruta.add(retorno.get(i));
+        }
+
+        return ruta;
+    }
+
 }

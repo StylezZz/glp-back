@@ -141,4 +141,29 @@ public class PheromoneMatrix {
             }
         }
     }
+
+    /**
+     * Aplica un factor de evaporación entre planificaciones para mantener aprendizaje
+     * pero evitar estancamiento en patrones obsoletos
+     * @param factorEvaporacionEntrePlanificaciones Factor de evaporación (0-1)
+     */
+    public void aplicarEvaporacionEntrePlanificaciones(double factorEvaporacionEntrePlanificaciones) {
+        // Limitar el factor entre 0 y 1
+        double factor = Math.max(0.0, Math.min(1.0, factorEvaporacionEntrePlanificaciones));
+
+        // Aplicar evaporación a toda la matriz
+        for (int i = 0; i < tamanio; i++) {
+            for (int j = 0; j < tamanio; j++) {
+                matriz[i][j] *= (1.0 - factor);
+
+                // Asegurar valor mínimo de feromona para mantener exploración
+                if (matriz[i][j] < 0.1) {
+                    matriz[i][j] = 0.1;
+                }
+            }
+        }
+
+        System.out.println("🔄 Feromonas persistidas con factor de evaporación: " +
+                String.format("%.2f", factor));
+    }
 }

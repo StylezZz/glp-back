@@ -14,7 +14,7 @@ public class ACOParameters {
 
     // Parámetros básicos del algoritmo ACO
     private int numeroHormigas = 50;
-    private int numeroIteraciones = 500;
+    private int numeroIteraciones = 100;
     private int maxIteracionesSinMejora = 50;
     private double umbralConvergenciaTemprana = 0.6;  // 60% del total de iteraciones
     private double factorEvaporacion = 0.3;
@@ -22,6 +22,9 @@ public class ACOParameters {
     private double beta = 2.0;  // Importancia de la heurística
     private double q0 = 0.9;    // Parámetro de exploración vs explotación
     private double feromonaInicial = 0.4;
+
+    // Parámetros para simulación
+    private int tiempoAvanceSimulacion = 15;      // Minutos que avanza la simulación en cada iteración
 
     // Parámetros específicos del problema de distribución
     private int tiempoDescargaCliente = 15;       // Minutos para descarga en cliente
@@ -35,8 +38,12 @@ public class ACOParameters {
     private double factorPenalizacionBloqueo = 5000.0; // Penalización por bloqueo en ruta
     private double factorPriorizacionUrgencia = 2.0; // Factor para priorizar pedidos urgentes
 
-    // Parámetros para simulación
-    private int tiempoAvanceSimulacion = 15;      // Minutos que avanza la simulación en cada iteración
+    // Para el rolling horizon
+    private int horizontePlanificacionMinutos = 240; // Horizonte de planificación en minutos
+    private int intervaloReplanificacionMinutos = 60; // Frecuencia de replanificación normal
+    private boolean replanificacionEmergencia = true; // Replanificación en caso de averías
+
+
 
     // Umbral de combustible crítico para camiones
     private int umbralCombustibleCritico = 5;     // Galones
@@ -45,7 +52,7 @@ public class ACOParameters {
     private double capacidadMinimaReabastecimiento = 10.0; // m3
 
     // Umbral de distancia para considerar pedidos como cercanos (para agrupamiento)
-    private double umbralDistanciaPedidosCercanos = 10.0; // km
+    private double umbralDistanciaPedidosCercanos = 4.0; // km
 
     // Máximo de pedidos por grupo en agrupamiento inteligente
     private int maxPedidosPorGrupo = 5;

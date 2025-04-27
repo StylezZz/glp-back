@@ -4,6 +4,7 @@ import pucp.edu.glp.glpdp1.algorithm.model.Nodo;
 import pucp.edu.glp.glpdp1.domain.Ubicacion;
 
 import java.util.List;
+import java.util.ArrayList;
 
 /**
  * Utilidades para el cálculo de distancias en el grafo de la ciudad.
@@ -108,4 +109,35 @@ public class DistanceCalculator {
     private boolean estanEnMismaLineaRecta(Ubicacion u1, Ubicacion u2) {
         return u1.getX() == u2.getX() || u1.getY() == u2.getY();
     }
+
+    /**
+     * Genera la secuencia completa de ubicaciones entre dos puntos (ruta detallada)
+     * @param origen Ubicación de origen
+     * @param destino Ubicación de destino
+     * @return Lista con todas las ubicaciones intermedias en orden
+     */
+    public static List<Ubicacion> generarRutaCompleta(Ubicacion origen, Ubicacion destino) {
+        List<Ubicacion> ruta = new ArrayList<>();
+        int x = origen.getX();
+        int y = origen.getY();
+
+        // Añadir punto de origen
+        ruta.add(new Ubicacion(x, y));
+
+        // Primero movemos en X y luego en Y (estrategia Manhattan)
+        // Movimiento horizontal (X)
+        while (x != destino.getX()) {
+            x += (x < destino.getX()) ? 1 : -1;
+            ruta.add(new Ubicacion(x, y));
+        }
+
+        // Movimiento vertical (Y)
+        while (y != destino.getY()) {
+            y += (y < destino.getY()) ? 1 : -1;
+            ruta.add(new Ubicacion(x, y));
+        }
+
+        return ruta;
+    }
 }
+

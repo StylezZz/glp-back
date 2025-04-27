@@ -161,7 +161,7 @@ public class GA {
             ind.evaluate();
         }
         for (Rutas ruta : ind.getRutas()) {
-            System.out.println("Camión " + ruta.getCamion().getIdC()
+            System.out.println("Camión " + ruta.getCamion().getId()
                     + " -> Distancia: " + ruta.getDistanciaTotal()
                     + ", Paradas: " + ruta.getUbicaciones().size());
         }

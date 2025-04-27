@@ -16,6 +16,7 @@ import pucp.edu.glp.glpdp1.algorithm.aco.ACOSolution;
 import pucp.edu.glp.glpdp1.algorithm.model.CamionAsignacion;
 import pucp.edu.glp.glpdp1.domain.Camion;
 import pucp.edu.glp.glpdp1.domain.Pedido;
+import pucp.edu.glp.glpdp1.domain.Ubicacion;
 import pucp.edu.glp.glpdp1.domain.enums.EstadoCamion;
 
 /**
@@ -111,6 +112,57 @@ public class ACOLogger {
         System.out.println("📏 Distancia: " + String.format("%.2f", distanciaTotal) + " km | " +
                 "Consumo: " + String.format("%.2f", consumoTotal) + " gal");
         System.out.println("⏱️ Tiempo: " + String.format("%.2f", tiempoEjecucionMs / 1000.0) + " seg");
+
+        // Añadir esta nueva sección para imprimir rutas detalladas
+        System.out.println("\n----- RUTAS DETALLADAS ITERACIÓN " + iteracion + " -----");
+        if (solucion != null && !solucion.getAsignaciones().isEmpty()) {
+            for (CamionAsignacion asignacion : solucion.getAsignaciones()) {
+                System.out.println("\n🚚 Camión: " + asignacion.getCamion().getId() +
+                        " (" + asignacion.getPedidos().size() + " pedidos)");
+
+                // Imprimir pedidos asignados
+                for (Pedido p : asignacion.getPedidos()) {
+                    System.out.println("  📦 Pedido #" + p.getIdPedido() +
+                            " - Destino: (" + p.getDestino().getX() + "," + p.getDestino().getY() + ")");
+                }
+
+                // Imprimir ruta completa nodo por nodo
+                System.out.println("  🗺️ Ruta completa:");
+                List<Ubicacion> rutaCompleta = asignacion.getRutaCompleta();
+                printRutaDetallada(rutaCompleta);
+            }
+        } else {
+            System.out.println("  No hay rutas para mostrar en esta iteración");
+        }
+    }
+
+    private void printRutaDetallada(List<Ubicacion> ruta) {
+        // Control de longitud para no inundar la consola
+        int maxNodosImprimir = 50;
+        int totalNodos = ruta.size();
+
+        System.out.print("    ");
+        for (int i = 0; i < totalNodos; i++) {
+            Ubicacion u = ruta.get(i);
+            System.out.print("(" + u.getX() + "," + u.getY() + ")");
+
+            // Si no es el último nodo, añadir flecha
+            if (i < totalNodos - 1) {
+                System.out.print("→");
+            }
+
+            // Salto de línea cada cierto número de nodos para mejorar legibilidad
+            if ((i + 1) % 5 == 0 && i < totalNodos - 1) {
+                System.out.print("\n    ");
+            }
+
+            // Si hay muchos nodos, mostrar solo un subconjunto
+            if (i >= maxNodosImprimir && totalNodos > maxNodosImprimir + 3) {
+                System.out.print("... (+" + (totalNodos - maxNodosImprimir) + " nodos más)");
+                break;
+            }
+        }
+        System.out.println();
     }
 
     /**
@@ -148,7 +200,7 @@ public class ACOLogger {
         int[] disponibles = new int[4];
 
         for (Camion camion : flota) {
-            String tipo = camion.getIdC().substring(0, 2);
+            String tipo = camion.getId().substring(0, 2);
             int idx;
 
             switch (tipo) {
@@ -197,7 +249,7 @@ public class ACOLogger {
             }
             double utilizacion = (volumenTotal / camion.getCargaM3()) * 100;
 
-            System.out.println("\n🚚 [" + camion.getIdC() + "] Cap: " + camion.getCargaM3() +
+            System.out.println("\n🚚 [" + camion.getId() + "] Cap: " + camion.getCargaM3() +
                     "m³ | Asignado: " + pedidos.size() + " pedidos | " +
                     "Utilización: " + String.format("%.2f%%", utilizacion));
 
@@ -278,7 +330,7 @@ public class ACOLogger {
                 writer.println("DETALLE DE ASIGNACIONES:");
                 for (CamionAsignacion asignacion : mejorSolucion.getAsignaciones()) {
                     Camion camion = asignacion.getCamion();
-                    writer.println("\nCamión: " + camion.getIdC() + " (Cap: " + camion.getCargaM3() + "m³)");
+                    writer.println("\nCamión: " + camion.getId() + " (Cap: " + camion.getCargaM3() + "m³)");
                     writer.println("Pedidos asignados: " + asignacion.getPedidos().size());
 
                     for (Pedido p : asignacion.getPedidos()) {
@@ -315,6 +367,24 @@ public class ACOLogger {
             }
 
             System.out.println("✅ Resultado detallado guardado en: " + resultFile);
+
+            // Guardar rutas detalladas
+            writer.println("\nRUTAS DETALLADAS:");
+            for (CamionAsignacion asignacion : mejorSolucion.getAsignaciones()) {
+                writer.println("\nCamión: " + asignacion.getCamion().getId());
+                List<Ubicacion> ruta = asignacion.getRutaCompleta();
+
+                writer.print("  Ruta: ");
+                for (int i = 0; i < ruta.size(); i++) {
+                    Ubicacion u = ruta.get(i);
+                    writer.print("(" + u.getX() + "," + u.getY() + ")");
+                    if (i < ruta.size() - 1) {
+                        writer.print(">");
+                    }
+                }
+                writer.println();
+            }
+
         } catch (IOException e) {
             logger.severe("Error guardando resultado: " + e.getMessage());
         }

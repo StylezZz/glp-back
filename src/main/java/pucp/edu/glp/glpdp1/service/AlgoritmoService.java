@@ -23,10 +23,7 @@ public class AlgoritmoService {
     public List<Rutas> generarRutasOptimizadas(Mapa mapa, ACOParameters params) {
         logger.info("Iniciando generación de rutas optimizadas con ACO");
 
-        // Crear instancia del algoritmo con los parámetros dados
         ACOAlgorithm algoritmo = new ACOAlgorithm(mapa, params);
-
-        // Ejecutar algoritmo
         List<Rutas> rutas = algoritmo.ejecutar();
 
         logger.info("Generación de rutas completada. Total rutas: " + rutas.size());

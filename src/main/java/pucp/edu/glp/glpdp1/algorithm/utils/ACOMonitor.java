@@ -4,11 +4,10 @@ import pucp.edu.glp.glpdp1.algorithm.aco.ACOSolution;
 import pucp.edu.glp.glpdp1.algorithm.model.CamionAsignacion;
 import pucp.edu.glp.glpdp1.domain.Camion;
 import pucp.edu.glp.glpdp1.domain.Pedido;
+import pucp.edu.glp.glpdp1.domain.Ubicacion;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Monitor de rendimiento para el algoritmo ACO.
@@ -215,5 +214,72 @@ public class ACOMonitor {
         double consumoTotal;
         double ratioAsignacion;
         double utilizacionFlota;
+    }
+
+    /**
+     * Analiza y muestra rutas detalladas
+     */
+    public void mostrarRutasDetalladas(ACOSolution solucion) {
+        System.out.println("\n🗺️ RUTAS DETALLADAS (MONITOR):");
+
+        if (solucion == null || solucion.getAsignaciones().isEmpty()) {
+            System.out.println("  No hay rutas para mostrar");
+            return;
+        }
+
+        int contador = 1;
+        for (CamionAsignacion asignacion : solucion.getAsignaciones()) {
+            System.out.println("\n🚚 #" + contador + " Camión: " + asignacion.getCamion().getId() +
+                    " - Tipo: " + asignacion.getCamion().getTipo());
+
+            // Obtener ruta completa
+            List<Ubicacion> ruta = asignacion.getRutaCompleta();
+
+            // Imprimir puntos claves (origen, destinos, final)
+            System.out.println("  📍 Origen: (" + ruta.get(0).getX() + "," + ruta.get(0).getY() + ")");
+
+            // Imprimir destinos de entrega
+            for (Pedido p : asignacion.getPedidos()) {
+                Ubicacion dest = p.getDestino();
+                System.out.println("  🚩 Entrega #" + p.getIdPedido() + ": (" +
+                        dest.getX() + "," + dest.getY() + ")");
+            }
+
+            System.out.println("  🏁 Final: (" + ruta.get(ruta.size()-1).getX() +
+                    "," + ruta.get(ruta.size()-1).getY() + ")");
+
+            // Imprimir estadísticas
+            System.out.println("  📊 Distancia: " + String.format("%.2f", asignacion.getDistanciaTotal()) +
+                    " km | Nodos: " + ruta.size());
+
+            // Imprimir ruta completa (controlando la longitud)
+            System.out.println("  🧭 Ruta completa:");
+            imprimirNodosConLimite(ruta, 100); // Limitar a 100 nodos para no saturar
+
+            contador++;
+        }
+    }
+
+    // Método auxiliar para imprimir nodos con límite
+    private void imprimirNodosConLimite(List<Ubicacion> ruta, int limite) {
+        int total = ruta.size();
+        int mostrar = Math.min(total, limite);
+
+        for (int i = 0; i < mostrar; i++) {
+            if (i % 5 == 0) System.out.print("    ");
+
+            Ubicacion u = ruta.get(i);
+            System.out.print("(" + u.getX() + "," + u.getY() + ")");
+
+            if (i < mostrar - 1) System.out.print("→");
+
+            if ((i + 1) % 5 == 0 && i < mostrar - 1) System.out.println();
+        }
+
+        if (total > limite) {
+            System.out.println("\n    ... (" + (total - limite) + " nodos más)");
+        } else {
+            System.out.println();
+        }
     }
 }

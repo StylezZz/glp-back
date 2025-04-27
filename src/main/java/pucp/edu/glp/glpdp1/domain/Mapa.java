@@ -2,7 +2,6 @@ package pucp.edu.glp.glpdp1.domain;
 
 import lombok.Getter;
 import lombok.Setter;
-import pucp.edu.glp.glpdp1.domain.Rutas;
 import pucp.edu.glp.glpdp1.domain.enums.EstadoCamion;
 import pucp.edu.glp.glpdp1.domain.enums.TipoAlmacen;
 import pucp.edu.glp.glpdp1.domain.enums.TipoCamion;
@@ -10,118 +9,80 @@ import pucp.edu.glp.glpdp1.domain.enums.TipoCamion;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
-
-@Getter @Setter
+@Getter
+@Setter
 public class Mapa {
-    private int ancho;
-    private int alto;
-    private List<Camion> flota;
-    private List<Pedido> pedidos;
-    private List<Bloqueo> bloqueos;
-    private List<Almacen> almacenes;
-    private List<Averia> averias;
+    private final int ancho, alto;
+    private List<Camion> flota = new ArrayList<>();
+    private List<Pedido> pedidos = new ArrayList<>();
+    private List<Bloqueo> bloqueos = new ArrayList<>();
+    private List<Almacen> almacenes = new ArrayList<>();
+    private List<Averia> averias = new ArrayList<>();
     private List<Rutas> rutas;
-    // Por el momento
-    private LocalDateTime fechaInicio;
-    private LocalDateTime fechaFin;
+    private LocalDateTime fechaInicio, fechaFin;
 
-    // Setear almacenes
-    public Mapa(int ancho,int alto){
+    public Mapa(int ancho, int alto) {
         this.ancho = ancho;
         this.alto = alto;
-        this.almacenes = new ArrayList<>();
-        this.flota = new ArrayList<>();
-        this.pedidos = new ArrayList<>();
-        this.bloqueos = new ArrayList<>();
-
-        cargaAlmacenes();
-        cargaFlota();
-        //cargarAverias(nombreArchivo);
+        inicializarAlmacenes();
+        inicializarFlota();
     }
 
-    private void cargaAlmacenes(){
-        //Iniciar almancenes
-        Almacen almacen1 = new Almacen();
-        almacen1.setTipoAlmacen(TipoAlmacen.CENTRAL);
-        almacen1.setUbicacion(new Ubicacion(12,8));
-        almacen1.setCapacidadEfectivaM3(160.0);
-
-        Almacen almacen2 = new Almacen();
-        almacen2.setTipoAlmacen(TipoAlmacen.INTERMEDIO_ESTE);
-        almacen2.setUbicacion(new Ubicacion(63,3));
-        almacen2.setCapacidadEfectivaM3(160.0);
-
-        Almacen almacen3 = new Almacen();
-        almacen3.setTipoAlmacen(TipoAlmacen.INTERMEDIO_NORTE);
-        almacen3.setUbicacion(new Ubicacion(42,42));
-        almacen3.setCapacidadEfectivaM3(160.0);
-
-        this.almacenes.add(almacen1);
-        this.almacenes.add(almacen2);
-        this.almacenes.add(almacen3);
+    private void inicializarAlmacenes() {
+        var specs = List.of(
+                new AlmacenSpec(TipoAlmacen.CENTRAL, 12, 8, 160.0),
+                new AlmacenSpec(TipoAlmacen.INTERMEDIO_ESTE, 63, 3, 160.0),
+                new AlmacenSpec(TipoAlmacen.INTERMEDIO_NORTE, 42, 42, 160.0)
+        );
+        specs.stream()
+                .map(s -> {
+                    var a = new Almacen();
+                    a.setTipoAlmacen(s.tipo());
+                    a.setUbicacion(new Ubicacion(s.x(), s.y()));
+                    a.setCapacidadEfectivaM3(s.capacidad());
+                    return a;
+                })
+                .forEach(almacenes::add);
     }
 
-    private void cargaFlota(){
-        cargarTipoD();
-        cargarTipoC();
-        cargarTipoB();
-        cargarTipoA();
+    private void inicializarFlota() {
+        var specs = List.of(
+                new CamionSpec(TipoCamion.TD, "TD", 1.0, 5.0, 2.5, 3.5, 10),
+                new CamionSpec(TipoCamion.TC, "TC", 1.5, 10.0, 5.0, 6.5, 4),
+                new CamionSpec(TipoCamion.TB, "TB", 2.0, 15.0, 7.5, 9.5, 4),
+                new CamionSpec(TipoCamion.TA, "TA", 2.5, 25.0, 12.5, 15.0, 2)
+        );
+
+        specs.forEach(spec ->
+                IntStream.rangeClosed(1, spec.count()).mapToObj(i -> {
+                    var c = new Camion();
+                    c.setId(spec.prefix() + String.format("%02d", i));
+                    c.setTipo(spec.tipo());
+                    c.setPesoBrutoTon(spec.pesoBrutoTon());
+                    c.setCargaM3(spec.cargaM3());
+                    c.setPesoCargaTon(spec.pesoCargaTon());
+                    c.setPesoCombinadoTon(spec.pesoCombinadoTon());
+                    c.setEstado(EstadoCamion.DISPONIBLE);
+                    c.setGalones(25);
+                    return c;
+                }).forEach(flota::add)
+        );
     }
 
-    private void cargarTipoD(){
-        for(int i =0; i<10;i++){
-            Camion camion = new Camion();
-            camion.setIdC("TD"+String.format("%02d",i+1));
-            camion.setTipo(TipoCamion.TD);
-            camion.setPesoBrutoTon(1.0);
-            camion.setCargaM3(5.0);
-            camion.setPesoCargaTon(2.5);
-            camion.setPesoCombinadoTon(3.5);
-            camion.setEstado(EstadoCamion.DISPONIBLE);
-            this.flota.add(camion);
-        }
+    // Specs auxiliares para inicializar sin repetir
+    private record AlmacenSpec(TipoAlmacen tipo, int x, int y, double capacidad) {
     }
 
-    private void cargarTipoC(){
-        for(int i=0;i<4;i++){
-            Camion camion = new Camion();
-            camion.setIdC("TC"+String.format("%02d",i+1));
-            camion.setTipo(TipoCamion.TC);
-            camion.setPesoBrutoTon(1.5);
-            camion.setCargaM3(10.0);
-            camion.setPesoCargaTon(5.0);
-            camion.setPesoCombinadoTon(6.5);
-            camion.setEstado(EstadoCamion.DISPONIBLE);
-            this.flota.add(camion);
-        }
-    }
-
-    private void cargarTipoB(){
-        for(int i=0;i<4;i++){
-            Camion camion = new Camion();
-            camion.setIdC("TB"+String.format("%02d",i+1));
-            camion.setTipo(TipoCamion.TB);
-            camion.setPesoBrutoTon(2.0);
-            camion.setCargaM3(15.0);
-            camion.setPesoCargaTon(7.5);
-            camion.setPesoCombinadoTon(9.5);
-            camion.setEstado(EstadoCamion.DISPONIBLE);
-            this.flota.add(camion);
-        }
-    }
-
-    private void cargarTipoA(){
-        for(int i=0;i<2;i++){
-            Camion camion = new Camion();
-            camion.setIdC("TA"+String.format("%02d",i+1));
-            camion.setTipo(TipoCamion.TA);
-            camion.setPesoBrutoTon(2.5);
-            camion.setCargaM3(25.0);
-            camion.setPesoCargaTon(12.5);
-            camion.setPesoCombinadoTon(15.0);
-            camion.setEstado(EstadoCamion.DISPONIBLE);
-            this.flota.add(camion);
-        }
+    private record CamionSpec(
+            TipoCamion tipo,
+            String prefix,
+            double pesoBrutoTon,
+            double cargaM3,
+            double pesoCargaTon,
+            double pesoCombinadoTon,
+            int count
+    ) {
     }
 }

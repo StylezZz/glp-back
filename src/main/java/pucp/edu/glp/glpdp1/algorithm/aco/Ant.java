@@ -6,7 +6,6 @@ import pucp.edu.glp.glpdp1.algorithm.model.CamionAsignacion;
 import pucp.edu.glp.glpdp1.algorithm.model.GrafoRutas;
 import pucp.edu.glp.glpdp1.algorithm.model.Nodo;
 import pucp.edu.glp.glpdp1.algorithm.model.Ruta;
-import pucp.edu.glp.glpdp1.algorithm.utils.AlgorithmUtils;
 import pucp.edu.glp.glpdp1.algorithm.utils.DistanceCalculator;
 import pucp.edu.glp.glpdp1.algorithm.utils.UrgencyCalculator;
 import pucp.edu.glp.glpdp1.domain.*;
@@ -35,6 +34,8 @@ public class Ant {
     // NUEVO: Solución guía para construcción
     private ACOSolution solucionGuia;
 
+    private Map<String, Ubicacion> posicionesActuales;
+
     /**
      * Constructor
      *
@@ -49,15 +50,15 @@ public class Ant {
     }
 
     /**
-     * Método principal que construye una solución completa
-     * Implementa RF85 (Agrupamiento inteligente) y RF98 (Optimización de secuencia)
+     * Construye una solución a partir del estado actual del sistema
      */
-    public ACOSolution construirSolucion(
+    public ACOSolution construirSolucionDesdeEstadoActual(
             List<Pedido> pedidos,
             List<Camion> camionesDisponibles,
             PheromoneMatrix feromonas,
             HeuristicCalculator heuristica,
             LocalDateTime tiempoActual,
+            LocalDateTime horizonteFinal,
             GrafoRutas grafo,
             Map<TipoAlmacen, Double> capacidadTanques) {
 
@@ -65,7 +66,6 @@ public class Ant {
         ACOSolution solucion = new ACOSolution();
 
         Collections.shuffle(pedidos, random);
-
         Collections.shuffle(camionesDisponibles, random);
 
         // Hacer copias de trabajo
@@ -89,10 +89,12 @@ public class Ant {
             return Double.compare(urgenciaMaxG2, urgenciaMaxG1); // Orden descendente
         });
 
-        // Asignar grupos a camiones con búsqueda local
+        // Asignar grupos a camiones
         for (List<Pedido> grupo : gruposPedidos) {
-            // Definimos ventana temporal para el grupo
+            // Definir ventana temporal para este grupo (limitada por el horizonte)
             LocalDateTime finVentanaTemporal = tiempoActual.plusMinutes(parameters.getVentanaTemporalMinutos());
+            finVentanaTemporal = finVentanaTemporal.isBefore(horizonteFinal) ?
+                    finVentanaTemporal : horizonteFinal;
 
             // Si no quedan camiones disponibles, los pedidos quedan sin asignar
             if (camionesDisponiblesHormiga.isEmpty()) {
@@ -102,8 +104,8 @@ public class Ant {
                 continue;
             }
 
-            // Construir rutas con búsqueda local en ventana temporal
-            construirRutasConVentanaTemporal(
+            // Construir rutas considerando posiciones actuales
+            construirRutasDesdeEstadoActual(
                     solucion,
                     grupo,
                     camionesDisponiblesHormiga,
@@ -120,9 +122,9 @@ public class Ant {
     }
 
     /**
-     * Construye rutas optimizadas considerando una ventana temporal
+     * Construye rutas optimizadas desde el estado actual del sistema
      */
-    private void construirRutasConVentanaTemporal(
+    private void construirRutasDesdeEstadoActual(
             ACOSolution solucion,
             List<Pedido> grupo,
             List<Camion> camionesDisponibles,
@@ -136,19 +138,30 @@ public class Ant {
         // Calcular volumen total del grupo
         double volumenTotal = grupo.stream().mapToDouble(Pedido::getVolumen).sum();
 
-        // Encontrar mejor cambión para el grupo
+        // Encontrar mejor camión para este grupo
         Camion mejorCamion = seleccionarMejorCamion(camionesDisponibles, volumenTotal);
 
         if (mejorCamion == null) {
-            // No se pudo enconrar un camión adecuado
+            // No se pudo encontrar un camión adecuado
             for (Pedido p : grupo) {
                 solucion.addPedidoNoAsignado(p);
             }
             return;
         }
 
-        // Obtener almacén central como punto de partida
-        Ubicacion ubicacionInicial = obtenerUbicacionAlmacenCentral(grafo);
+        // Obtener posición actual del camión (o almacén central si es nuevo)
+        Ubicacion ubicacionInicial;
+        if (posicionesActuales != null && posicionesActuales.containsKey(mejorCamion.getId())) {
+            ubicacionInicial = posicionesActuales.get(mejorCamion.getId());
+            // Añadir debugging para confirmar que se está usando la posición correcta
+            System.out.println("🚚 Camión " + mejorCamion.getId() + " planificando desde (" +
+                    ubicacionInicial.getX() + "," + ubicacionInicial.getY() + ")");
+        } else {
+            ubicacionInicial = obtenerUbicacionAlmacenCentral(grafo);
+            System.out.println("⚠️ No hay posición actual para " + mejorCamion.getId() +
+                    ", usando almacén central");
+        }
+
         Nodo nodoActual = grafo.obtenerNodo(ubicacionInicial);
 
         // Crear asignación para este camión
@@ -161,11 +174,15 @@ public class Ant {
         // Variables para control de estado
         double combustibleActual = mejorCamion.getGalones();
         double pesoTotal = mejorCamion.getPesoBrutoTon();
+
+        // Calcular capacidad máxima de distancia con el combustible actual
+        double distanciaMaximaPosible = (combustibleActual * 180.0) / pesoTotal;
+
         LocalDateTime tiempoActual = tiempoInicio;
 
-        // Generación de rutas con ventana temporal
+        // Generación de rutas con ventana temporal desde posición actual
         while (!pedidosRestantes.isEmpty() && tiempoActual.isBefore(tiempoFin)) {
-            // Seleccionar siguiente pedido considerando bloqueos en la ventana temporal
+            // Seleccionar siguiente pedido considerando bloqueos
             Pedido siguiente = seleccionarSiguientePedidoConVentana(
                     nodoActual,
                     pedidosRestantes,
@@ -176,7 +193,6 @@ public class Ant {
                     tiempoFin
             );
 
-            // No se pudo encontrar un siguiente pedido viable
             if (siguiente == null) break;
 
             // Crear ruta hasta el siguiente pedido
@@ -197,7 +213,70 @@ public class Ant {
 
             // Calcular tiempo y combustible de este tramo
             double distancia = calcularDistanciaRuta(caminoHastaPedido);
-            combustibleActual -= calcularCombustibleConsumido(distancia, pesoTotal);
+
+            // Calcula distancia al almacén más cercano desde el destino
+            Ubicacion almacenMasCercano = encontrarAlmacenMasCercano(siguiente.getDestino(), grafo);
+            double distanciaVuelta = DistanceCalculator.calcularDistanciaManhattan(
+                    siguiente.getDestino(), almacenMasCercano);
+
+            // Verificar si hay suficiente combustible para ir y volver al almacén
+            if (distancia + distanciaVuelta > distanciaMaximaPosible) {
+                // Necesitamos reabastecimiento antes de la entrega
+                Ubicacion tanqueMasConveniente = encontrarTanqueMasConveniente(
+                        nodoActual.getUbicacion(),
+                        siguiente.getDestino(),
+                        grafo,
+                        capacidadTanquesHormiga
+                );
+
+                // Crear ruta hasta el punto de reabastecimiento
+                Nodo nodoTanque = grafo.obtenerNodo(tanqueMasConveniente);
+                List<Nodo> caminoHastaTanque = grafo.encontrarRutaViableConBloqueos(
+                        nodoActual, nodoTanque, tiempoActual, tiempoFin);
+
+                if (caminoHastaTanque.isEmpty()) {
+                    // No podemos llegar al tanque, no podemos entregar este pedido
+                    pedidosRestantes.remove(siguiente);
+                    solucion.addPedidoNoAsignado(siguiente);
+                    continue;
+                }
+
+                // Crear ruta de reabastecimiento
+                double distanciaTanque = calcularDistanciaRuta(caminoHastaTanque);
+                Ruta rutaReabastecimiento = new Ruta();
+                rutaReabastecimiento.setOrigen(nodoActual.getUbicacion());
+                rutaReabastecimiento.setDestino(tanqueMasConveniente);
+                rutaReabastecimiento.setDistancia(distanciaTanque);
+                rutaReabastecimiento.setPuntoReabastecimiento(true);
+
+                // Consumo hasta el tanque
+                double consumoTanque = calcularCombustibleConsumido(distanciaTanque, pesoTotal);
+                combustibleActual -= consumoTanque;
+                tiempoActual = avanzarTiempo(tiempoActual, distanciaTanque);
+
+                // Reabastecimiento
+                combustibleActual = 25.0; // Tanque lleno
+                distanciaMaximaPosible = (combustibleActual * 180.0) / pesoTotal;
+
+                rutas.add(rutaReabastecimiento);
+                nodoActual = nodoTanque;
+
+                // Ahora intentamos llegar al pedido desde el tanque
+                caminoHastaPedido = grafo.encontrarRutaViableConBloqueos(
+                        nodoActual, nodoSiguiente, tiempoActual, tiempoFin);
+
+                if (caminoHastaPedido.isEmpty()) {
+                    pedidosRestantes.remove(siguiente);
+                    solucion.addPedidoNoAsignado(siguiente);
+                    continue;
+                }
+
+                distancia = calcularDistanciaRuta(caminoHastaPedido);
+            }
+
+            double consumoTramo = calcularCombustibleConsumido(distancia, pesoTotal);
+            combustibleActual -= consumoTramo;
+            distanciaMaximaPosible = (combustibleActual * 180.0) / pesoTotal;
             tiempoActual = avanzarTiempo(tiempoActual, distancia);
 
             // Crear ruta
@@ -208,28 +287,70 @@ public class Ant {
             rutaEntrega.setPuntoEntrega(true);
             rutaEntrega.setPedidoEntrega(siguiente);
 
-            // Se añaden las estructuras
+            // Agregar a las estructuras
             rutas.add(rutaEntrega);
             asignacion.getPedidos().add(siguiente);
             pedidosRestantes.remove(siguiente);
 
-            // Actualziar nodo actual
+            // Actualizar peso después de entregar el pedido
+            pesoTotal = mejorCamion.getPesoBrutoTon();
+            for (Pedido p : asignacion.getPedidos()) {
+                if (p != siguiente) { // Ya entregamos este
+                    pesoTotal += p.getVolumen() * 0.5; // 0.5 ton por m3
+                }
+            }
+
+            // Actualizar distancia máxima posible con el nuevo peso
+            distanciaMaximaPosible = (combustibleActual * 180.0) / pesoTotal;
+
+            // Actualizar nodo actual
             nodoActual = nodoSiguiente;
         }
 
         // Agregar ruta de regreso si hubo alguna entrega
         if (!asignacion.getPedidos().isEmpty()) {
-            agregarRutaRegreso(
-                    grafo,
-                    nodoActual,
-                    rutas,
-                    tiempoActual
-            );
+            // Verificar si necesitamos reabastecimiento para volver
+            Ubicacion almacenRegreso = encontrarAlmacenMasCercano(nodoActual.getUbicacion(), grafo);
+            double distanciaRegreso = DistanceCalculator.calcularDistanciaManhattan(
+                    nodoActual.getUbicacion(), almacenRegreso);
+
+            if (distanciaRegreso > distanciaMaximaPosible) {
+                // Necesitamos reabastecimiento antes de volver
+                Ubicacion tanqueMasConveniente = encontrarTanqueMasConveniente(
+                        nodoActual.getUbicacion(),
+                        almacenRegreso,
+                        grafo,
+                        capacidadTanquesHormiga
+                );
+
+                Nodo nodoTanque = grafo.obtenerNodo(tanqueMasConveniente);
+                List<Nodo> caminoHastaTanque = grafo.encontrarRutaViableConBloqueos(
+                        nodoActual, nodoTanque, tiempoActual, tiempoFin);
+
+                if (!caminoHastaTanque.isEmpty()) {
+                    double distanciaTanque = calcularDistanciaRuta(caminoHastaTanque);
+                    Ruta rutaReabastecimiento = new Ruta();
+                    rutaReabastecimiento.setOrigen(nodoActual.getUbicacion());
+                    rutaReabastecimiento.setDestino(tanqueMasConveniente);
+                    rutaReabastecimiento.setDistancia(distanciaTanque);
+                    rutaReabastecimiento.setPuntoReabastecimiento(true);
+
+                    rutas.add(rutaReabastecimiento);
+                    nodoActual = nodoTanque;
+                    combustibleActual = 25.0;
+                }
+            }
+
+            agregarRutaRegreso(grafo, nodoActual, rutas, tiempoActual);
             asignacion.setRutas(rutas);
+
+            // Registrar el combustible final
+            asignacion.setConsumoTotal(25.0 - combustibleActual);
+
             solucion.addAsignacion(asignacion);
             camionesDisponibles.remove(mejorCamion);
         } else {
-            // No se pudo entregar ningún pedido, marcar todos como no asignados
+            // No se pudo entregar ningún pedido
             for (Pedido p : grupo) {
                 solucion.addPedidoNoAsignado(p);
             }
@@ -372,75 +493,6 @@ public class Ant {
         }
 
         return mejorValoracion;
-    }
-
-    /**
-     * Verifica si un bloqueo está activo en un momento dado
-     */
-    private boolean estaActivoEnTiempo(Bloqueo bloqueo, LocalDateTime tiempo) {
-        return !tiempo.isBefore(bloqueo.getFechaInicio()) && !tiempo.isAfter(bloqueo.getFechaFinal());
-    }
-
-    /**
-     * Verifica si dos segmentos se intersectan
-     */
-    private boolean intersectanSegmentos(Ubicacion a1, Ubicacion a2, Ubicacion b1, Ubicacion b2) {
-        // En una malla 2D, los segmentos se intersectan si:
-        // 1. Ambos son horizontales y están en la misma fila, con rangos de X solapados
-        // 2. Ambos son verticales y están en la misma columna, con rangos de Y solapados
-        // 3. Uno es horizontal y otro vertical, y el punto de intersección está en ambos rangos
-
-        boolean a_horizontal = a1.getY() == a2.getY();
-        boolean a_vertical = a1.getX() == a2.getX();
-        boolean b_horizontal = b1.getY() == b2.getY();
-        boolean b_vertical = b1.getX() == b2.getX();
-
-        // Caso 1: Ambos horizontales
-        if (a_horizontal && b_horizontal && a1.getY() == b1.getY()) {
-            int a_min_x = Math.min(a1.getX(), a2.getX());
-            int a_max_x = Math.max(a1.getX(), a2.getX());
-            int b_min_x = Math.min(b1.getX(), b2.getX());
-            int b_max_x = Math.max(b1.getX(), b2.getX());
-
-            return !(a_max_x < b_min_x || b_max_x < a_min_x);
-        }
-
-        // Caso 2: Ambos verticales
-        if (a_vertical && b_vertical && a1.getX() == b1.getX()) {
-            int a_min_y = Math.min(a1.getY(), a2.getY());
-            int a_max_y = Math.max(a1.getY(), a2.getY());
-            int b_min_y = Math.min(b1.getY(), b2.getY());
-            int b_max_y = Math.max(b1.getY(), b2.getY());
-
-            return !(a_max_y < b_min_y || b_max_y < a_min_y);
-        }
-
-        // Caso 3: Uno horizontal, otro vertical
-        if (a_horizontal && b_vertical) {
-            int a_y = a1.getY();
-            int b_x = b1.getX();
-            int a_min_x = Math.min(a1.getX(), a2.getX());
-            int a_max_x = Math.max(a1.getX(), a2.getX());
-            int b_min_y = Math.min(b1.getY(), b2.getY());
-            int b_max_y = Math.max(b1.getY(), b2.getY());
-
-            return (b_x >= a_min_x && b_x <= a_max_x) &&
-                    (a_y >= b_min_y && a_y <= b_max_y);
-        }
-
-        if (a_vertical && b_horizontal) {
-            int a_x = a1.getX();
-            int b_y = b1.getY();
-            int a_min_y = Math.min(a1.getY(), a2.getY());
-            int a_max_y = Math.max(a1.getY(), a2.getY());
-            int b_min_x = Math.min(b1.getX(), b2.getX());
-            int b_max_x = Math.max(b1.getX(), b2.getX());
-
-            return (a_x >= b_min_x && a_x <= b_max_x) &&
-                    (b_y >= a_min_y && b_y <= a_max_y);
-        }
-
-        return false;
     }
 
     /**
@@ -642,454 +694,6 @@ public class Ant {
     }
 
     /**
-     * RF98: Construye rutas optimizadas para minimizar viajes en vacío
-     */
-    private void construirRutasOptimizadas(
-            ACOSolution solucion,
-            Camion camion,
-            List<Pedido> pedidos,
-            PheromoneMatrix feromonas,
-            HeuristicCalculator heuristica,
-            LocalDateTime tiempoActual,
-            GrafoRutas grafo,
-            Map<TipoAlmacen, Double> capacidadTanquesHormiga) {
-
-        // Crear asignación para este camión
-        CamionAsignacion asignacion = new CamionAsignacion(camion, pedidos);
-
-        // Ubicación inicial: almacén central
-        Ubicacion ubicacionInicial = obtenerUbicacionAlmacenCentral(grafo);
-        Nodo nodoActual = grafo.obtenerNodo(ubicacionInicial);
-
-        // Lista de rutas a construir
-        List<Ruta> rutas = new ArrayList<>();
-
-        // Lista de pedidos por entregar
-        List<Pedido> pedidosRestantes = new ArrayList<>(pedidos);
-
-        // Variables para control de combustible
-        double combustibleActual = camion.getGalones();
-        double pesoCamion = camion.getPesoBrutoTon();
-        double pesoCarga = AlgorithmUtils.calcularPesoCargaTotal(pedidos);
-        double pesoTotal = pesoCamion + pesoCarga;
-
-        // Calcular la máxima distancia posible con el combustible actual
-        double distanciaMaximaPosible = (combustibleActual * 180) / pesoTotal;
-
-        // Mientras queden pedidos por entregar
-        while (!pedidosRestantes.isEmpty()) {
-            // Seleccionar próximo pedido basado en feromonas y heurística
-            Pedido siguiente = seleccionarSiguientePedido(
-                    nodoActual,
-                    pedidosRestantes,
-                    feromonas,
-                    heuristica,
-                    grafo
-            );
-
-            // Ubicación del siguiente pedido
-            Ubicacion ubicacionSiguiente = siguiente.getDestino();
-            Nodo nodoSiguiente = grafo.obtenerNodo(ubicacionSiguiente);
-
-            // Calcular distancia hasta el siguiente pedido
-            double distanciaHastaSiguiente = DistanceCalculator.calcularDistanciaManhattan(
-                    nodoActual.getUbicacion(), ubicacionSiguiente);
-
-            // Verificar si hay suficiente combustible para ir y volver al almacén más cercano
-            Ubicacion almacenMasCercanoASiguiente =
-                    encontrarAlmacenMasCercano(ubicacionSiguiente, grafo);
-
-            double distanciaAlmacenMasCercano = DistanceCalculator.calcularDistanciaManhattan(
-                    ubicacionSiguiente, almacenMasCercanoASiguiente);
-
-            // Si no alcanza el combustible, buscar reabastecimiento
-            if ((distanciaHastaSiguiente + distanciaAlmacenMasCercano) > distanciaMaximaPosible) {
-                // RF86: Encontrar tanque más conveniente para reabastecimiento
-                Ubicacion tanqueMasConveniente = encontrarTanqueMasConveniente(
-                        nodoActual.getUbicacion(),
-                        ubicacionSiguiente,
-                        grafo,
-                        capacidadTanquesHormiga
-                );
-
-                // Construir ruta hasta tanque
-                List<Nodo> caminoHastaTanque = grafo.encontrarRutaViable(
-                        nodoActual,
-                        grafo.obtenerNodo(tanqueMasConveniente),
-                        tiempoActual
-                );
-
-                if (caminoHastaTanque.isEmpty()) {
-                    // No se pudo encontrar ruta viable, el pedido no se puede entregar
-                    pedidosRestantes.remove(siguiente);
-                    solucion.addPedidoNoAsignado(siguiente);
-                    continue;
-                }
-
-                // Crear ruta hasta tanque
-                Ruta rutaReabastecimiento = new Ruta();
-                rutaReabastecimiento.setOrigen(nodoActual.getUbicacion());
-                rutaReabastecimiento.setDestino(tanqueMasConveniente);
-                rutaReabastecimiento.setDistancia(calcularDistanciaRuta(caminoHastaTanque));
-                rutaReabastecimiento.setPuntoReabastecimiento(true);
-                rutas.add(rutaReabastecimiento);
-
-                // Actualizar estado
-                nodoActual = grafo.obtenerNodo(tanqueMasConveniente);
-
-                // RF88/RF96: Actualizar combustible y capacidad del tanque
-                TipoAlmacen tipoTanque = obtenerTipoAlmacen(tanqueMasConveniente, grafo);
-                combustibleActual = 25; // Llenar tanque
-                distanciaMaximaPosible = (combustibleActual * 180) / pesoTotal;
-
-                // Descontar del tanque intermedio si no es central
-                if (tipoTanque != TipoAlmacen.CENTRAL) {
-                    double volumenActual = capacidadTanquesHormiga.get(tipoTanque);
-                    double volumenConsumido = calcularVolumenReabastecimiento(camion);
-
-                    if (volumenActual >= volumenConsumido) {
-                        capacidadTanquesHormiga.put(tipoTanque, volumenActual - volumenConsumido);
-                    } else {
-                        // Si no hay suficiente capacidad, usar lo que queda
-                        capacidadTanquesHormiga.put(tipoTanque, 0.0);
-                    }
-                }
-            }
-
-            // Construir ruta hasta el siguiente pedido
-            List<Nodo> caminoHastaPedido = grafo.encontrarRutaViable(
-                    nodoActual,
-                    nodoSiguiente,
-                    tiempoActual
-            );
-
-            if (caminoHastaPedido.isEmpty()) {
-                // No se pudo encontrar ruta viable, el pedido no se puede entregar
-                pedidosRestantes.remove(siguiente);
-                solucion.addPedidoNoAsignado(siguiente);
-                continue;
-            }
-
-            // Crear ruta hasta pedido
-            Ruta rutaEntrega = new Ruta();
-            rutaEntrega.setOrigen(nodoActual.getUbicacion());
-            rutaEntrega.setDestino(ubicacionSiguiente);
-            rutaEntrega.setDistancia(calcularDistanciaRuta(caminoHastaPedido));
-            rutaEntrega.setPuntoEntrega(true);
-            rutaEntrega.setPedidoEntrega(siguiente);
-            rutas.add(rutaEntrega);
-
-            // Actualizar estado
-            nodoActual = nodoSiguiente;
-            pesoCarga -= siguiente.getVolumen() * 0.5; // Peso estimado de la carga (0.5 ton por m3)
-            pesoTotal = pesoCamion + pesoCarga;
-
-            // Actualizar combustible consumido
-            double distanciaRecorrida = rutaEntrega.getDistancia();
-            double combustibleConsumido = (distanciaRecorrida * pesoTotal) / 180;
-            combustibleActual -= combustibleConsumido;
-            distanciaMaximaPosible = (combustibleActual * 180) / pesoTotal;
-
-            // Eliminar pedido de pendientes
-            pedidosRestantes.remove(siguiente);
-        }
-
-        // Añadir ruta de regreso al almacén más cercano
-        Ubicacion almacenRegreso = encontrarAlmacenMasCercano(nodoActual.getUbicacion(), grafo);
-        List<Nodo> caminoRegreso = grafo.encontrarRutaViable(
-                nodoActual,
-                grafo.obtenerNodo(almacenRegreso),
-                tiempoActual
-        );
-
-        // Si no hay ruta viable de regreso, intentar con otro almacén
-        if (caminoRegreso.isEmpty()) {
-            List<Ubicacion> otrosAlmacenes = obtenerUbicacionesAlmacenes(grafo);
-            otrosAlmacenes.remove(almacenRegreso);
-
-            for (Ubicacion otroAlmacen : otrosAlmacenes) {
-                caminoRegreso = grafo.encontrarRutaViable(
-                        nodoActual,
-                        grafo.obtenerNodo(otroAlmacen),
-                        tiempoActual
-                );
-
-                if (!caminoRegreso.isEmpty()) {
-                    almacenRegreso = otroAlmacen;
-                    break;
-                }
-            }
-        }
-
-        // Si aún no hay ruta viable de regreso, crear una ruta vacía (caso extremo)
-        if (caminoRegreso.isEmpty()) {
-            almacenRegreso = obtenerUbicacionAlmacenCentral(grafo);
-        }
-
-        // Crear ruta de regreso
-        Ruta rutaRegreso = new Ruta();
-        rutaRegreso.setOrigen(nodoActual.getUbicacion());
-        rutaRegreso.setDestino(almacenRegreso);
-        rutaRegreso.setDistancia(caminoRegreso.isEmpty() ? 0 : calcularDistanciaRuta(caminoRegreso));
-        rutaRegreso.setPuntoRegreso(true);
-        rutas.add(rutaRegreso);
-
-        // Asignar rutas a la asignación
-        asignacion.setRutas(rutas);
-
-        // Calcular consumo total
-        double consumoTotal = 0;
-        for (Ruta ruta : rutas) {
-            // Para cada tramo, calcular el consumo según el peso en ese momento
-            double pesoTramo = pesoCamion + (pedidos.size() - rutas.indexOf(ruta)) * 0.5;
-            double consumoTramo = (ruta.getDistancia() * pesoTramo) / 180.0;
-            consumoTotal += consumoTramo;
-        }
-        asignacion.setConsumoTotal(consumoTotal);
-
-        // Añadir la asignación a la solución
-        solucion.addAsignacion(asignacion);
-    }
-
-    /**
-     * Selecciona el siguiente pedido basado en feromonas y heurística
-     * Implementa la regla de transición de estado del algoritmo ACO
-     */
-    protected Pedido seleccionarSiguientePedido(
-            Nodo nodoActual,
-            List<Pedido> pedidosRestantes,
-            PheromoneMatrix feromonas,
-            HeuristicCalculator heuristica,
-            GrafoRutas grafo) {
-
-        // ADAPTACIÓN: Si hay solución guía, consultarla primero (25% de probabilidad)
-        if (solucionGuia != null && random.nextDouble() < 0.25) {
-            Pedido pedidoGuiado = consultarSolucionGuia(nodoActual, pedidosRestantes);
-            if (pedidoGuiado != null) {
-                return pedidoGuiado;
-            }
-        }
-
-        double q0Efectivo = Math.max(0.1, parameters.getQ0() * (0.8 + 0.4 * random.nextDouble()));
-
-        if (random.nextDouble() < 0.05) {
-            return pedidosRestantes.get(random.nextInt(pedidosRestantes.size()));
-        }
-
-        // Implementación de la regla de pseudoaleatorio proporcional
-        if (random.nextDouble() < q0Efectivo) {
-            // Explotación: elegir el mejor según feromonas y heurística
-            double mejorValor = Double.NEGATIVE_INFINITY;
-            Pedido mejorPedido = null;
-
-            for (Pedido pedido : pedidosRestantes) {
-                Nodo nodoPedido = grafo.obtenerNodo(pedido.getDestino());
-                int idNodoActual = nodoActual.getId();
-                int idNodoPedido = nodoPedido.getId();
-
-                double valorFeromona = feromonas.getValor(idNodoActual, idNodoPedido);
-                double valorHeuristica = heuristica.getValorHeuristica(idNodoActual, idNodoPedido);
-
-                double ruido = 1.0 + (random.nextDouble() - 0.5);
-
-                // Ajustar por urgencia
-                double urgencia = UrgencyCalculator.calcularUrgenciaNormalizada(pedido);
-                double factorUrgencia = 1.0 + urgencia * parameters.getFactorPriorizacionUrgencia();
-
-                double valor = Math.pow(valorFeromona, parameters.getAlfa()) *
-                        Math.pow(valorHeuristica, parameters.getBeta()) *
-                        factorUrgencia;
-
-                if (valor > mejorValor) {
-                    mejorValor = valor;
-                    mejorPedido = pedido;
-                }
-            }
-
-            return mejorPedido != null ? mejorPedido : pedidosRestantes.get(0);
-        } else {
-            // Exploración: selección probabilística
-            double total = 0;
-            Map<Pedido, Double> probabilidades = new HashMap<>();
-
-            for (Pedido pedido : pedidosRestantes) {
-                Nodo nodoPedido = grafo.obtenerNodo(pedido.getDestino());
-                int idNodoActual = nodoActual.getId();
-                int idNodoPedido = nodoPedido.getId();
-
-                double valorFeromona = feromonas.getValor(idNodoActual, idNodoPedido);
-                double valorHeuristica = heuristica.getValorHeuristica(idNodoActual, idNodoPedido);
-
-                double pertubacion = 0.9 + 0.2 * random.nextDouble();
-
-                // Ajustar por urgencia
-                double urgencia = UrgencyCalculator.calcularUrgenciaNormalizada(pedido);
-                double factorUrgencia = 1.0 + urgencia * parameters.getFactorPriorizacionUrgencia();
-
-                double valor = Math.pow(valorFeromona, parameters.getAlfa()) *
-                        Math.pow(valorHeuristica, parameters.getBeta()) *
-                        factorUrgencia;
-
-                probabilidades.put(pedido, valor);
-                total += valor;
-            }
-
-            // Selección por ruleta
-            double seleccion = random.nextDouble() * total;
-            double acumulado = 0;
-
-            for (Map.Entry<Pedido, Double> entrada : probabilidades.entrySet()) {
-                acumulado += entrada.getValue();
-                if (acumulado >= seleccion) {
-                    return entrada.getKey();
-                }
-            }
-
-            // Si por algún error numérico no se seleccionó ninguno, devolver el primero
-            return pedidosRestantes.get(random.nextInt(pedidosRestantes.size()));
-        }
-    }
-
-    /**
-     * Consulta la solución guía para encontrar un siguiente pedido recomendado
-     */
-    private Pedido consultarSolucionGuia(Nodo nodoActual, List<Pedido> pedidosRestantes) {
-        // Si no hay solución guía, retornar null
-        if (solucionGuia == null || solucionGuia.getAsignaciones().isEmpty()) {
-            return null;
-        }
-
-        // Obtener ubicación actual
-        Ubicacion ubicacionActual = nodoActual.getUbicacion();
-
-        // Buscar en cada asignación de la solución guía
-        for (CamionAsignacion asignacion : solucionGuia.getAsignaciones()) {
-            List<Ruta> rutas = asignacion.getRutas();
-
-            // Buscar una ruta que parta de la ubicación actual o cercana
-            for (int i = 0; i < rutas.size(); i++) {
-                Ruta ruta = rutas.get(i);
-
-                // Si el origen es cercano a la ubicación actual
-                if (esUbicacionCercana(ruta.getOrigen(), ubicacionActual, 3)) {
-                    // Obtener el pedido de destino (si es punto de entrega)
-                    if (ruta.isPuntoEntrega() && ruta.getPedidoEntrega() != null) {
-                        Pedido pedidoSugerido = ruta.getPedidoEntrega();
-
-                        // Verificar si este pedido está disponible
-                        if (pedidosRestantes.contains(pedidoSugerido)) {
-                            return pedidoSugerido;
-                        }
-
-                        // Si no está disponible, buscar uno similar
-                        Pedido pedidoSimilar = buscarPedidoSimilar(pedidoSugerido, pedidosRestantes);
-                        if (pedidoSimilar != null) {
-                            return pedidoSimilar;
-                        }
-                    }
-                }
-            }
-        }
-
-        return null; // No se encontró pedido guía apropiado
-    }
-
-    /**
-     * Verifica si dos ubicaciones están cerca (Manhattan)
-     */
-    private boolean esUbicacionCercana(Ubicacion u1, Ubicacion u2, int umbralDistancia) {
-        int distancia = Math.abs(u1.getX() - u2.getX()) + Math.abs(u1.getY() - u2.getY());
-        return distancia <= umbralDistancia;
-    }
-
-    /**
-     * Busca un pedido similar al dado en una lista de pedidos
-     */
-    private Pedido buscarPedidoSimilar(Pedido pedidoReferencia, List<Pedido> pedidosDisponibles) {
-        Ubicacion ubicacionReferencia = pedidoReferencia.getDestino();
-        Pedido pedidoMasCercano = null;
-        double distanciaMinima = Double.MAX_VALUE;
-
-        for (Pedido p : pedidosDisponibles) {
-            double distancia = Math.abs(p.getDestino().getX() - ubicacionReferencia.getX()) +
-                    Math.abs(p.getDestino().getY() - ubicacionReferencia.getY());
-
-            if (distancia < distanciaMinima) {
-                distanciaMinima = distancia;
-                pedidoMasCercano = p;
-            }
-        }
-
-        // Solo retornar si está suficientemente cerca
-        return distanciaMinima <= 10 ? pedidoMasCercano : null;
-    }
-
-    /**
-     * RF86: Encuentra el tanque más conveniente para reabastecimiento
-     */
-    private Ubicacion encontrarTanqueMasConveniente(
-            Ubicacion ubicacionActual,
-            Ubicacion ubicacionDestino,
-            GrafoRutas grafo,
-            Map<TipoAlmacen, Double> capacidadTanquesHormiga) {
-
-        // Obtener ubicaciones de todos los almacenes
-        List<Ubicacion> ubicacionesAlmacenes = obtenerUbicacionesAlmacenes(grafo);
-
-        // Si no hay tanques intermedios con capacidad, usar el almacén central
-        Ubicacion almacenCentral = null;
-
-        Map<Ubicacion, Double> puntuaciones = new HashMap<>();
-
-        for (Ubicacion ubicacionAlmacen : ubicacionesAlmacenes) {
-            TipoAlmacen tipoAlmacen = obtenerTipoAlmacen(ubicacionAlmacen, grafo);
-
-            if (tipoAlmacen == TipoAlmacen.CENTRAL) {
-                almacenCentral = ubicacionAlmacen;
-                continue; // Evaluar el almacén central al final si es necesario
-            }
-
-            // RF88: Verificar si el tanque tiene capacidad suficiente
-            double capacidadDisponible = capacidadTanquesHormiga.get(tipoAlmacen);
-            if (capacidadDisponible < parameters.getCapacidadMinimaReabastecimiento()) {
-                continue; // Tanque sin capacidad suficiente
-            }
-
-            // Calcular desviación (distancia extra que implica ir al tanque)
-            double distanciaDirecta = DistanceCalculator.calcularDistanciaManhattan(
-                    ubicacionActual, ubicacionDestino);
-
-            double distanciaConTanque = DistanceCalculator.calcularDistanciaManhattan(
-                    ubicacionActual, ubicacionAlmacen) +
-                    DistanceCalculator.calcularDistanciaManhattan(
-                            ubicacionAlmacen, ubicacionDestino);
-
-            double desviacion = distanciaConTanque - distanciaDirecta;
-
-            // RF86: Factor de priorización de tanques intermedios
-            // Menor puntuación = mejor opción
-            double factorCapacidad = capacidadDisponible / 160.0; // Normalizado entre 0-1
-            double puntuacion = desviacion / (factorCapacidad * parameters.getFactorPriorizacionTanques());
-
-            puntuaciones.put(ubicacionAlmacen, puntuacion);
-        }
-
-        // Encontrar el tanque con mejor puntuación
-        Ubicacion mejorTanque = null;
-        double mejorPuntuacion = Double.MAX_VALUE;
-
-        for (Map.Entry<Ubicacion, Double> entrada : puntuaciones.entrySet()) {
-            if (entrada.getValue() < mejorPuntuacion) {
-                mejorPuntuacion = entrada.getValue();
-                mejorTanque = entrada.getKey();
-            }
-        }
-
-        // Si no hay tanques intermedios disponibles, usar almacén central
-        return mejorTanque != null ? mejorTanque : almacenCentral;
-    }
-
-    /**
      * Encuentra el almacén más cercano a una ubicación
      */
     private Ubicacion encontrarAlmacenMasCercano(Ubicacion ubicacion, GrafoRutas grafo) {
@@ -1158,58 +762,177 @@ public class Ant {
         return distancia;
     }
 
-    /**
-     * Calcula el volumen necesario para reabastecimiento
-     */
-    private double calcularVolumenReabastecimiento(Camion camion) {
-        // Para simplificar, asumimos reabastecimiento completo de la capacidad
-        return camion.getCargaM3();
-    }
 
     /**
-     * Verifica si un camión puede cargar un pedido
+     * RF86: Encuentra el tanque más conveniente para reabastecimiento
+     * Considera la desviación de ruta, capacidad disponible y conveniencia
+     * @param ubicacionActual Posición actual del camión
+     * @param ubicacionDestino Destino final hacia donde se dirige
+     * @param grafo Grafo con información de la ciudad
+     * @param capacidadTanquesHormiga Mapa con capacidades actuales de tanques
+     * @return Ubicación del punto de reabastecimiento más conveniente
      */
-    private boolean puedeCargarPedido(Camion camion, Pedido pedido) {
-        boolean tieneEspacio = camion.getCargaM3() >= pedido.getVolumen();
-        boolean soportaPeso = camion.puedeCargar(pedido.getVolumen());
-        return tieneEspacio && soportaPeso;
-    }
+    private Ubicacion encontrarTanqueMasConveniente(
+            Ubicacion ubicacionActual,
+            Ubicacion ubicacionDestino,
+            GrafoRutas grafo,
+            Map<TipoAlmacen, Double> capacidadTanquesHormiga) {
 
-    /**
-     * Divide un pedido grande entre varios camiones
-     */
-    private List<Pedido> dividirPedidoGrande(Pedido pedidoOriginal, List<Camion> camionesDisponiblesHormiga) {
-        List<Pedido> subpedidos = new ArrayList<>();
-        double volumenRestante = pedidoOriginal.getVolumen();
+        // Obtener ubicaciones de todos los almacenes
+        List<Ubicacion> ubicacionesAlmacenes = obtenerUbicacionesAlmacenes(grafo);
 
-        camionesDisponiblesHormiga.sort((c1, c2) -> Double.compare(c2.getCargaM3(), c1.getCargaM3()));
+        // Referencia al almacén central para usar como respaldo
+        Ubicacion almacenCentral = null;
 
-        int subpedidoId = 1;
-        for (Camion camion : camionesDisponiblesHormiga) {
-            if (volumenRestante <= 0) break;
-            double capacidadCamion = camion.getCargaM3();
-            double volumenAsignable = Math.min(capacidadCamion, volumenRestante);
+        // Mapa para guardar puntuaciones de cada tanque (menor es mejor)
+        Map<Ubicacion, Double> puntuaciones = new HashMap<>();
 
-            if (volumenAsignable > 0) {
-                Pedido subpedido = new Pedido();
-                subpedido.setIdPedido(pedidoOriginal.getIdPedido() * 1000 + subpedidoId++);
-                subpedido.setVolumen(volumenAsignable);
-                subpedido.setDestino(pedidoOriginal.getDestino());
-                subpedido.setFechaLimite(pedidoOriginal.getFechaLimite());
+        // Evaluar cada posible punto de reabastecimiento
+        for (Ubicacion ubicacionAlmacen : ubicacionesAlmacenes) {
+            TipoAlmacen tipoAlmacen = obtenerTipoAlmacen(ubicacionAlmacen, grafo);
 
-                subpedidos.add(subpedido);
-                volumenRestante -= volumenAsignable;
+            if (tipoAlmacen == TipoAlmacen.CENTRAL) {
+                almacenCentral = ubicacionAlmacen;
+                continue; // Evaluar el almacén central al final si es necesario
+            }
+
+            // RF88: Verificar si el tanque intermedio tiene capacidad suficiente
+            Double capacidadDisponible = capacidadTanquesHormiga.get(tipoAlmacen);
+            if (capacidadDisponible == null || capacidadDisponible < parameters.getCapacidadMinimaReabastecimiento()) {
+                // Almacén sin capacidad disponible o suficiente, saltar
+                System.out.println("⚠️ Tanque " + tipoAlmacen + " sin capacidad suficiente: " +
+                        (capacidadDisponible != null ? capacidadDisponible : 0) + "m³");
+                continue;
+            }
+
+            // Calcular desviación que implica ir al tanque respecto a ruta directa
+            double distanciaDirecta = DistanceCalculator.calcularDistanciaManhattan(
+                    ubicacionActual, ubicacionDestino);
+
+            double distanciaConTanque = DistanceCalculator.calcularDistanciaManhattan(
+                    ubicacionActual, ubicacionAlmacen) +
+                    DistanceCalculator.calcularDistanciaManhattan(
+                            ubicacionAlmacen, ubicacionDestino);
+
+            double desviacion = distanciaConTanque - distanciaDirecta;
+
+            // Considerar distancia al tanque (priorizar tanques cercanos)
+            double distanciaAlTanque = DistanceCalculator.calcularDistanciaManhattan(
+                    ubicacionActual, ubicacionAlmacen);
+
+            // RF86: Factor de priorización de tanques intermedios
+            // Calcular puntuación (menor es mejor)
+            double factorCapacidad = capacidadDisponible / 160.0; // Normalizar entre 0-1
+            double factorDistancia = 1.0 / (1.0 + distanciaAlTanque / 20.0); // Favorece tanques cercanos
+
+            // Fórmula de puntuación: menor desviación y mayor capacidad es mejor
+            double puntuacion = desviacion / (factorCapacidad * parameters.getFactorPriorizacionTanques() * factorDistancia);
+
+            // Añadir bono si el tanque está en la dirección del destino
+            if (estaEnDireccionDestino(ubicacionActual, ubicacionAlmacen, ubicacionDestino)) {
+                puntuacion *= 0.8; // 20% de mejora en puntuación
+            }
+
+            puntuaciones.put(ubicacionAlmacen, puntuacion);
+            System.out.println("🔍 Evaluando tanque en (" + ubicacionAlmacen.getX() + "," +
+                    ubicacionAlmacen.getY() + ") - Puntuación: " + String.format("%.2f", puntuacion));
+        }
+
+        // Si no hay tanques intermedios disponibles o son muy inconvenientes, evaluar almacén central
+        if (almacenCentral != null) {
+            double distanciaDirecta = DistanceCalculator.calcularDistanciaManhattan(
+                    ubicacionActual, ubicacionDestino);
+
+            double distanciaConCentral = DistanceCalculator.calcularDistanciaManhattan(
+                    ubicacionActual, almacenCentral) +
+                    DistanceCalculator.calcularDistanciaManhattan(
+                            almacenCentral, ubicacionDestino);
+
+            double desviacion = distanciaConCentral - distanciaDirecta;
+            double distanciaAlCentral = DistanceCalculator.calcularDistanciaManhattan(
+                    ubicacionActual, almacenCentral);
+
+            // El almacén central siempre tiene capacidad, pero puede estar más lejos
+            double puntuacion = desviacion / (1.0 / (1.0 + distanciaAlCentral / 20.0));
+
+            // Añadimos el almacén central a las opciones
+            puntuaciones.put(almacenCentral, puntuacion);
+            System.out.println("🔍 Evaluando almacén central - Puntuación: " + String.format("%.2f", puntuacion));
+        }
+
+        // Encontrar el tanque con mejor puntuación (menor valor)
+        Ubicacion mejorTanque = null;
+        double mejorPuntuacion = Double.MAX_VALUE;
+
+        for (Map.Entry<Ubicacion, Double> entrada : puntuaciones.entrySet()) {
+            if (entrada.getValue() < mejorPuntuacion) {
+                mejorPuntuacion = entrada.getValue();
+                mejorTanque = entrada.getKey();
             }
         }
-        return subpedidos;
+
+        // Verificación final
+        if (mejorTanque == null && almacenCentral != null) {
+            System.out.println("ℹ️ No se encontró tanque óptimo, usando almacén central por defecto");
+            return almacenCentral;
+        } else if (mejorTanque != null) {
+            TipoAlmacen tipo = obtenerTipoAlmacen(mejorTanque, grafo);
+            System.out.println("✅ Tanque seleccionado: " + tipo + " en (" +
+                    mejorTanque.getX() + "," + mejorTanque.getY() + ")");
+            return mejorTanque;
+        }
+
+        // No deberíamos llegar aquí pero por seguridad:
+        System.out.println("⚠️ ERROR: No se encontró ningún tanque, usando posición (0,0)");
+        return new Ubicacion(0, 0);
     }
 
     /**
-     * Establece una solución guía para influir en la construcción
+     * Determina si un punto intermedio está en la dirección general del destino
+     * @param origen Punto de origen
+     * @param punto Punto intermedio a evaluar
+     * @param destino Punto de destino final
+     * @return true si el punto está en dirección al destino
      */
-    public void setSolucionGuia(ACOSolution solucionGuia) {
-        this.solucionGuia = solucionGuia;
+    private boolean estaEnDireccionDestino(Ubicacion origen, Ubicacion punto, Ubicacion destino) {
+        // Vector de origen a destino
+        int vx = destino.getX() - origen.getX();
+        int vy = destino.getY() - origen.getY();
+
+        // Vector de origen a punto
+        int px = punto.getX() - origen.getX();
+        int py = punto.getY() - origen.getY();
+
+        // Si los componentes tienen el mismo signo, están en la misma dirección
+        boolean mismaX = (vx >= 0 && px >= 0) || (vx <= 0 && px <= 0);
+        boolean mismaY = (vy >= 0 && py >= 0) || (vy <= 0 && py <= 0);
+
+        // Si al menos una componente está en la misma dirección y
+        // el punto no está más lejos que el destino, considerarlo en dirección
+        boolean dentroDeDistancia = Math.abs(px) <= Math.abs(vx) && Math.abs(py) <= Math.abs(vy);
+
+        return (mismaX || mismaY) && dentroDeDistancia;
     }
+
+    /**
+     * Verifica si un camión necesita reabastecimiento para un viaje
+     * @param camion El camión a evaluar
+     * @param distancia Distancia total del viaje en km
+     * @param pesoTotal Peso total incluyendo carga en toneladas
+     * @return true si necesita reabastecimiento
+     */
+    private boolean necesitaReabastecimiento(Camion camion, double distancia, double pesoTotal) {
+        // Calcular consumo estimado para la distancia
+        double consumoEstimado = (distancia * pesoTotal) / 180.0;
+
+        // Calcular distancia máxima posible con el combustible actual
+        double distanciaMaxima = (camion.getGalones() * 180.0) / pesoTotal;
+
+        // Verificar si el combustible es suficiente para recorrer la distancia
+        // con un margen de seguridad de 10%
+        return consumoEstimado > (camion.getGalones() * 0.9);
+    }
+
 
     /**
      * Clase auxiliar para evaluar pedidos
