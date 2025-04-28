@@ -194,6 +194,9 @@ public class ACOAlgorithm {
             logger.warning("Se detectaron inconsistencias en los datos de entrada");
         }*/
 
+        // TO-DO: Ajuste dinámico de frecuencia de replanificación por densidad de pedidos
+        /*ajustarFrecuenciaReplanificacion();*/
+
         /* === Estados Iniciales === */
 
         // Tiempo de simulación
@@ -208,13 +211,14 @@ public class ACOAlgorithm {
         // Lista histórica de todas las rutas para resultado final
         List<Rutas> rutasCompletas = new ArrayList<>();
 
-        // TO-DO: Ajuste dinámico de frecuencia de replanificación por densidad de pedidos
-        /*ajustarFrecuenciaReplanificacion();*/
+        // Inicializar la matriz de feromonas
+        this.pheromonesMatrix = new PheromoneMatrix(grafo.getTotalNodos(), parameters.getFeromonaInicial());
 
         // Bucle principal de ventanas de simulación
         while (tiempoSimulacion.isBefore(mapa.getFechaFin()) && !estadoColapso) {
             System.out.println("\n=== TIEMPO DE SIMULACIÓN: " + tiempoSimulacion + " ===");
 
+            // Logging de estado inicial
             System.out.println("🔍 PEDIDOS INICIALES: " + mapa.getPedidos().size());
             for (Pedido p : mapa.getPedidos()) {
                 System.out.println("  - ID: " + p.getIdPedido() +
@@ -222,45 +226,53 @@ public class ACOAlgorithm {
                         " | Registro: " + p.getFechaRegistro());
             }
 
-            // Procesar averias en camiones | TO-DO: Usarlas bien
+            // Procesar averias en camiones
             List<String> camionesAveriadosNuevos = procesarAverias(tiempoSimulacion);
             boolean averiasNuevas = !camionesAveriadosNuevos.isEmpty();
 
-            // 1. Determinar si es momento de replanificar
-            boolean necesitaReplanificar = tiempoSimulacion.isAfter(proximaReplanificacion) ||
+            // Detectar si es momento de replanificación
+            boolean esReplanificacion = tiempoSimulacion.isAfter(proximaReplanificacion) ||
                     (averiasNuevas && parameters.isReplanificacionEmergencia());
 
-            // 2. Si es momento de replanificar, ejecutar múltiples iteraciones de ACO
-            if (necesitaReplanificar) {
-                System.out.println(">>> REPLANIFICACIÓN EN: " + tiempoSimulacion);
-
-                // Actualizar próxima replanificación
+            // Si es replanificación, resetear parcialmente las feromonas
+            if (esReplanificacion) {
+                System.out.println(">>> REPLANIFICACIÓN COMPLETA EN: " + tiempoSimulacion);
                 proximaReplanificacion = tiempoSimulacion.plusMinutes(parameters.getIntervaloReplanificacionMinutos());
 
-                // Crear estado actual para el ACO
-                EstadoActual estadoActual = new EstadoActual(
-                        posicionesCamiones,
-                        filtrarCamionesDisponibles(mapa.getFlota()),
-                        pedidosPendientes,
-                        tiempoSimulacion
-                );
-
-                // Horizonte de planificación
-                LocalDateTime horizonteFinal = tiempoSimulacion.plusMinutes(parameters.getHorizontePlanificacionMinutos());
-
-                // Ejecutar múltiples iteraciones de ACO para este horizonte
-                ACOSolution nuevaSolucion = ejecutarACODinamicoConMultiplesIteraciones(estadoActual, horizonteFinal);
-
-                // Extraer nuevas rutas planificadas
-                rutasPlanificadas = extraerRutasPlanificadas(nuevaSolucion);
-
-                // Guardar estado para resultado final
-                guardarEstadoParaResultado(rutasCompletas, nuevaSolucion, tiempoSimulacion);
-
-                iteracion++;
+                // Reset parcial de feromonas (mantener parte del aprendizaje)
+                pheromonesMatrix.aplicarEvaporacionEntrePlanificaciones(factorEvaporacionEntrePlanificaciones);
+                System.out.println("🔄 Reinicio parcial de feromonas para nueva ventana de planificación");
             }
 
-            // Actualizar posiciones según rutas planificadas
+            // En cada avance de tiempo, ejecutar X iteraciones de ACO
+            // Crear estado actual para el ACO
+            EstadoActual estadoActual = new EstadoActual(
+                    posicionesCamiones,
+                    filtrarCamionesDisponibles(mapa.getFlota()),
+                    pedidosPendientes,
+                    tiempoSimulacion
+            );
+
+            // Horizonte de planificación
+            LocalDateTime horizonteFinal = tiempoSimulacion.plusMinutes(parameters.getHorizontePlanificacionMinutos());
+
+            // Ejecutar X iteraciones de ACO para este avance de tiempo
+            ACOSolution nuevaSolucion = ejecutarIteracionesACO(
+                    estadoActual,
+                    horizonteFinal,
+                    esReplanificacion
+            );
+
+            // Extraer nuevas rutas planificadas
+            rutasPlanificadas = extraerRutasPlanificadas(nuevaSolucion);
+
+            // Guardar estado para resultado final
+            guardarEstadoParaResultado(rutasCompletas, nuevaSolucion, tiempoSimulacion);
+
+            // Incrementar contador de iteraciones globales
+            iteracion++;
+
+            // Actualizar posiciones de camiones
             actualizarPosicionesCamiones(posicionesCamiones, rutasPlanificadas, parameters.getTiempoAvanceSimulacion());
 
             System.out.println("\n🔄 POSICIONES ACTUALIZADAS:");
@@ -269,13 +281,12 @@ public class ACOAlgorithm {
                 System.out.println("  - " + entry.getKey() + ": (" + pos.getX() + "," + pos.getY() + ")");
             }
 
-            // Detectar entregas completadas
+            // Procesar entregas completadas
             List<Pedido> pedidosEntregados = detectarEntregasCompletadas(posicionesCamiones, rutasPlanificadas, tiempoSimulacion);
             pedidosPendientes.removeAll(pedidosEntregados);
 
-            // Añadir nuevos pedidos si existen para este momento
+            // Añadir nuevos pedidos del intervalo actual
             List<Pedido> nuevosPedidos = obtenerNuevosPedidos(tiempoSimulacion, pedidosPendientes);
-            System.out.println("🔍 TODOS LOS PEDIDOS DESPUÉS DE AÑADIR NUEVOS: " + pedidosPendientes.size());
             if (!nuevosPedidos.isEmpty()) {
                 System.out.println("🔢 Pendientes ANTES de añadir: " + pedidosPendientes.size());
                 pedidosPendientes.addAll(nuevosPedidos);
@@ -283,17 +294,15 @@ public class ACOAlgorithm {
                 System.out.println("🔢 Pendientes DESPUÉS de añadir: " + pedidosPendientes.size());
             }
 
-            // 4. Visualizar estado actual
+            // Visualizar y verificar estado
             visualizarEstadoActual(tiempoSimulacion, posicionesCamiones, rutasPlanificadas, pedidosPendientes);
 
-            // 5. Verificar estado de colapso
             if (detectarEstadoColapso(pedidosPendientes, tiempoSimulacion)) {
                 logger.warning("ALERTA: Sistema en estado de colapso irreversible detectado");
                 estadoColapso = true;
                 break;
             }
 
-            // Verificar estado de combustible
             verificarEstadoCombustibleFlota();
 
             // Avanzar tiempo de simulación
@@ -302,12 +311,125 @@ public class ACOAlgorithm {
 
         logger.info("Algoritmo ACO con horizonte móvil finalizado");
 
-        // Generar informes finales
+        // Informes finales
         long tiempoTotalMs = System.currentTimeMillis() - tiempoInicioEjecucion;
         loggerACO.logAsignacionDetallada(mejorSolucionGlobal);
         loggerACO.generarDiagnostico(mejorSolucionGlobal, mapa.getPedidos().size());
 
         return rutasCompletas;
+    }
+
+    /**
+     * Ejecuta múltiples iteraciones de ACO para un avance de tiempo
+     */
+    private ACOSolution ejecutarIteracionesACO(EstadoActual estadoActual, LocalDateTime horizonteFinal, boolean esReplanificacion) {
+        // Siempre actualizar heurística (depende del estado actual)
+        this.heuristicCalculator = new HeuristicCalculator(grafo, parameters);
+        heuristicCalculator.actualizarHeuristicaDinamica(
+                estadoActual.getPedidosPendientes(),
+                mapa.getBloqueos(),
+                estadoActual.getTiempoActual(),
+                capacidadActualTanques
+        );
+
+        // Mejor solución de este conjunto de iteraciones
+        ACOSolution mejorSolucionLocal = null;
+        double mejorCalidadLocal = Double.NEGATIVE_INFINITY;
+
+        // Parámetros de logging
+        int numeroIteraciones = esReplanificacion ?
+                parameters.getNumeroIteraciones() :
+                Math.max(5, parameters.getNumeroIteraciones() / 4);
+
+        System.out.println("🐜 Ejecutando " + numeroIteraciones + " iteraciones ACO" +
+                (esReplanificacion ? " (replanificación completa)" : ""));
+
+        // Ejecutar las iteraciones de ACO
+        for (int i = 0; i < numeroIteraciones; i++) {
+            // En cada iteración, cada hormiga construye una solución
+            List<ACOSolution> soluciones = new ArrayList<>();
+
+            // Configurar hormigas
+            for (Ant hormiga : colony.getHormigas()) {
+                hormiga.setPosicionesActuales(estadoActual.getPosicionesCamiones());
+
+                // Usar solución histórica como guía (para algunas hormigas)
+                if (random.nextDouble() < factorAprendizaje && !historicoSoluciones.isEmpty()) {
+                    hormiga.setSolucionGuia(seleccionarSolucionHistoricaAleatoria());
+                }
+
+                // Construir solución
+                ACOSolution solucion = hormiga.construirSolucionDesdeEstadoActual(
+                        estadoActual.getPedidosPendientes(),
+                        estadoActual.getCamionesDisponibles(),
+                        pheromonesMatrix,
+                        heuristicCalculator,
+                        estadoActual.getTiempoActual(),
+                        horizonteFinal,
+                        grafo,
+                        capacidadActualTanques
+                );
+
+                // Evaluar solución
+                double calidad = evaluarSolucion(solucion, estadoActual.getTiempoActual());
+                solucion.setCalidad(calidad);
+                soluciones.add(solucion);
+
+                // Actualizar mejor solución local
+                if (calidad > mejorCalidadLocal) {
+                    mejorCalidadLocal = calidad;
+                    mejorSolucionLocal = solucion;
+                }
+            }
+
+            // Actualizar feromonas basado en la calidad de las soluciones
+            pheromonesMatrix.actualizarFeromonas(soluciones, parameters.getFactorEvaporacion());
+
+            // Aplicar búsqueda local ocasionalmente
+            if (i % 5 == 0 && busquedaLocalActiva && mejorSolucionLocal != null) {
+                aplicarBusquedaLocal(mejorSolucionLocal);
+                mejorSolucionLocal.setCalidad(evaluarSolucion(mejorSolucionLocal, estadoActual.getTiempoActual()));
+            }
+
+            // Cada 5 iteraciones mostrar progreso
+            if (i % 5 == 0 || i == numeroIteraciones - 1) {
+                System.out.println("   ↳ Iteración " + i + ": " +
+                        (mejorSolucionLocal != null ?
+                                mejorSolucionLocal.getNumeroPedidosAsignados() : 0) +
+                        "/" + estadoActual.getPedidosPendientes().size() +
+                        " pedidos asignados - Calidad: " +
+                        String.format("%.6f", mejorCalidadLocal));
+            }
+        }
+
+        // Actualizar histórico de soluciones
+        if (mejorSolucionLocal != null) {
+            historicoSoluciones.add(mejorSolucionLocal.clone());
+            if (historicoSoluciones.size() > 10) {
+                historicoSoluciones.remove(0);
+            }
+            actualizarMatrizFrecuencia(mejorSolucionLocal);
+        }
+
+        // Actualizar mejor solución global
+        if (mejorSolucionLocal != null && mejorSolucionLocal.getCalidad() > mejorCalidadGlobal) {
+            mejorSolucionGlobal = mejorSolucionLocal;
+            mejorCalidadGlobal = mejorSolucionLocal.getCalidad();
+            System.out.println("🌟 Nueva mejor solución global encontrada!");
+        }
+
+        // Reportar resultados
+        if (mejorSolucionLocal != null) {
+            loggerACO.logIteracion(
+                    iteracion,
+                    mejorSolucionLocal,
+                    estadoActual.getCamionesDisponibles(),
+                    estadoActual.getPedidosPendientes().size(),
+                    System.currentTimeMillis() - tiempoInicioEjecucion
+            );
+        }
+
+        return mejorSolucionLocal;
     }
 
     /**
@@ -1267,7 +1389,7 @@ public class ACOAlgorithm {
                     // Actualizar combustible consumido
                     double consumo = (ruta.getDistancia() * pesoActual) / 180.0;
                     int galonesActuales = camion.getGalones();
-                    camion.setGalones(Math.max(0, galonesActuales - (int)Math.ceil(consumo)));
+                    camion.setGalones(Math.max(0, galonesActuales - (int) Math.ceil(consumo)));
 
                     // Si es punto de entrega o reabastecimiento, detenerse por tiempo de operación
                     if (ruta.isPuntoEntrega() || ruta.isPuntoReabastecimiento()) {
@@ -1289,7 +1411,7 @@ public class ACOAlgorithm {
                     // Actualizar combustible por distancia parcial
                     double consumoParcial = (distanciaRestante * pesoActual) / 180.0;
                     int galonesActuales = camion.getGalones();
-                    camion.setGalones(Math.max(0, galonesActuales - (int)Math.ceil(consumoParcial)));
+                    camion.setGalones(Math.max(0, galonesActuales - (int) Math.ceil(consumoParcial)));
 
                     distanciaRecorrida += distanciaRestante;
                     distanciaRestante = 0; // Ya no queda distancia por recorrer
@@ -1422,97 +1544,6 @@ public class ACOAlgorithm {
     }
 
     /**
-     * Ejecuta algoritmo ACO con estado actual específico
-     */
-    private ACOSolution ejecutarACOConEstadoActual(EstadoActual estado, LocalDateTime horizonteFinal) {
-        // Persistir matriz de feromonas o crear una nueva
-        if (this.pheromonesMatrix != null) {
-            // Aplicar evaporación entre planificaciones para mantener
-            // aprendizaje pero evitar estancamiento
-            this.pheromonesMatrix.aplicarEvaporacionEntrePlanificaciones(factorEvaporacionEntrePlanificaciones);
-            System.out.println("🧠 Utilizando matriz de feromonas persistida de replanificación anterior");
-        } else {
-            // Primera ejecución, inicializar nueva matriz
-            this.pheromonesMatrix = new PheromoneMatrix(grafo.getTotalNodos(), parameters.getFeromonaInicial());
-            System.out.println("🆕 Inicializando nueva matriz de feromonas");
-        }
-
-        // Siempre recalcular heurística (esta depende de estado actual)
-        this.heuristicCalculator = new HeuristicCalculator(grafo, parameters);
-
-        // Actualizar heurística según estado actual
-        heuristicCalculator.actualizarHeuristicaDinamica(
-                estado.getPedidosPendientes(),
-                mapa.getBloqueos(),
-                estado.getTiempoActual(),
-                capacidadActualTanques
-        );
-
-        for (Ant hormiga : colony.getHormigas()) {
-            hormiga.setPosicionesActuales(estado.getPosicionesCamiones());
-            // Añadir debugging para confirmar que las posiciones se están pasando
-            System.out.println("💡 Hormiga #" + hormiga.getId() + " configurada con " +
-                    estado.getPosicionesCamiones().size() + " posiciones de camiones");
-        }
-
-        // Construcción de soluciones por cada hormiga
-        List<ACOSolution> soluciones = new ArrayList<>();
-        ACOSolution mejorSolucionIteracion = null;
-        double mejorCalidadIteracion = Double.NEGATIVE_INFINITY;
-
-        for (int i = 0; i < parameters.getNumeroHormigas(); i++) {
-            // Construir solución con estado actual
-            Ant hormiga = colony.getHormigas().get(i);
-
-            // Configurar hormiga con posiciones actuales
-            hormiga.setPosicionesActuales(estado.getPosicionesCamiones());
-
-            // Si es una de las primeras hormigas, usar solución histórica
-            if (i < 2 && !historicoSoluciones.isEmpty() && random.nextDouble() < factorAprendizaje) {
-                ACOSolution solucionGuia = seleccionarSolucionHistoricaAleatoria();
-                hormiga.setSolucionGuia(solucionGuia);
-            }
-
-            // Construir solución desde estado actual
-            ACOSolution solucion = hormiga.construirSolucionDesdeEstadoActual(
-                    estado.getPedidosPendientes(),
-                    estado.getCamionesDisponibles(),
-                    pheromonesMatrix,
-                    heuristicCalculator,
-                    estado.getTiempoActual(),
-                    horizonteFinal,
-                    grafo,
-                    capacidadActualTanques
-            );
-
-            // Evaluar solución
-            double calidad = evaluarSolucion(solucion, estado.getTiempoActual());
-            solucion.setCalidad(calidad);
-            soluciones.add(solucion);
-
-            // Actualizar mejor solución
-            if (calidad > mejorCalidadIteracion) {
-                mejorCalidadIteracion = calidad;
-                mejorSolucionIteracion = solucion;
-            }
-        }
-
-        // Actualizar feromonas
-        pheromonesMatrix.actualizarFeromonas(soluciones, parameters.getFactorEvaporacion());
-
-        // Actualizar histórico
-        if (mejorSolucionIteracion != null) {
-            historicoSoluciones.add(mejorSolucionIteracion.clone());
-            if (historicoSoluciones.size() > 10) {
-                historicoSoluciones.remove(0);
-            }
-            actualizarMatrizFrecuencia(mejorSolucionIteracion);
-        }
-
-        return mejorSolucionIteracion;
-    }
-
-    /**
      * Guarda estado para resultado final
      */
     private void guardarEstadoParaResultado(List<Rutas> rutasCompletas, ACOSolution solucion, LocalDateTime tiempo) {
@@ -1557,217 +1588,10 @@ public class ACOAlgorithm {
     }
 
     /**
-     * Ejecuta múltiples iteraciones de ACO dinámico para un horizonte específico
-     */
-    private ACOSolution ejecutarACODinamicoConMultiplesIteraciones(EstadoActual estadoInicial,
-                                                                   LocalDateTime horizonteFinal) {
-        // Persistir matriz de feromonas o crear una nueva
-        if (this.pheromonesMatrix != null) {
-            this.pheromonesMatrix.aplicarEvaporacionEntrePlanificaciones(factorEvaporacionEntrePlanificaciones);
-            System.out.println("🧠 Utilizando matriz de feromonas persistida de replanificación anterior");
-        } else {
-            this.pheromonesMatrix = new PheromoneMatrix(grafo.getTotalNodos(), parameters.getFeromonaInicial());
-            System.out.println("🆕 Inicializando nueva matriz de feromonas");
-        }
-
-        // Inicializar heurística
-        this.heuristicCalculator = new HeuristicCalculator(grafo, parameters);
-
-        // Mejor solución encontrada en todas las iteraciones
-        ACOSolution mejorSolucionGlobalACO = null;
-        double mejorCalidadGlobalACO = Double.NEGATIVE_INFINITY;
-
-        // Estado actual del sistema (inicialmente el proporcionado)
-        EstadoActual estadoActual = estadoInicial;
-
-        // Ejecutar múltiples iteraciones de ACO
-        for (int iterACO = 0; iterACO < parameters.getNumeroIteraciones(); iterACO++) {
-            System.out.println("\n🐜 ITERACIÓN ACO: " + iterACO);
-
-            // Actualizar heurística según estado actual
-            heuristicCalculator.actualizarHeuristicaDinamica(
-                    estadoActual.getPedidosPendientes(),
-                    mapa.getBloqueos(),
-                    estadoActual.getTiempoActual(),
-                    capacidadActualTanques
-            );
-
-            // Configurar hormigas con posiciones actuales
-            for (Ant hormiga : colony.getHormigas()) {
-                hormiga.setPosicionesActuales(estadoActual.getPosicionesCamiones());
-            }
-
-            // Construcción de soluciones por cada hormiga
-            List<ACOSolution> soluciones = new ArrayList<>();
-            ACOSolution mejorSolucionIteracion = null;
-            double mejorCalidadIteracion = Double.NEGATIVE_INFINITY;
-
-            // Cada hormiga construye una solución
-            for (int i = 0; i < parameters.getNumeroHormigas(); i++) {
-                Ant hormiga = colony.getHormigas().get(i);
-
-                // Si es una de las primeras hormigas, usar solución histórica
-                if (i < 2 && !historicoSoluciones.isEmpty() && random.nextDouble() < factorAprendizaje) {
-                    ACOSolution solucionGuia = seleccionarSolucionHistoricaAleatoria();
-                    hormiga.setSolucionGuia(solucionGuia);
-                }
-
-                // Construir solución
-                ACOSolution solucion = hormiga.construirSolucionDesdeEstadoActual(
-                        estadoActual.getPedidosPendientes(),
-                        estadoActual.getCamionesDisponibles(),
-                        pheromonesMatrix,
-                        heuristicCalculator,
-                        estadoActual.getTiempoActual(),
-                        horizonteFinal,
-                        grafo,
-                        capacidadActualTanques
-                );
-
-                // Evaluar solución
-                double calidad = evaluarSolucion(solucion, estadoActual.getTiempoActual());
-                solucion.setCalidad(calidad);
-                soluciones.add(solucion);
-
-                // Actualizar mejor solución de esta iteración
-                if (calidad > mejorCalidadIteracion) {
-                    mejorCalidadIteracion = calidad;
-                    mejorSolucionIteracion = solucion;
-                }
-            }
-
-            // Actualizar feromonas basado en soluciones de esta iteración
-            pheromonesMatrix.actualizarFeromonas(soluciones, parameters.getFactorEvaporacion());
-
-            // Aplicar búsqueda local a la mejor solución de esta iteración
-            if (mejorSolucionIteracion != null && busquedaLocalActiva) {
-                aplicarBusquedaLocal(mejorSolucionIteracion);
-                // Re-evaluar después de la búsqueda local
-                mejorSolucionIteracion.setCalidad(evaluarSolucion(mejorSolucionIteracion, estadoActual.getTiempoActual()));
-            }
-
-            // Actualizar mejor solución global
-            if (mejorSolucionIteracion != null &&
-                    mejorSolucionIteracion.getCalidad() > mejorCalidadGlobalACO) {
-                mejorCalidadGlobalACO = mejorSolucionIteracion.getCalidad();
-                mejorSolucionGlobalACO = mejorSolucionIteracion;
-
-                System.out.println("🌟 Nueva mejor solución global encontrada - Calidad: " +
-                        String.format("%.6f", mejorCalidadGlobalACO));
-            }
-
-            // Simulación de cambios dinámicos entre iteraciones
-            estadoActual = simularCambiosDinamicos(estadoActual, iterACO);
-
-            // Registrar solución para histórico
-            if (mejorSolucionIteracion != null) {
-                historicoSoluciones.add(mejorSolucionIteracion.clone());
-                if (historicoSoluciones.size() > 10) {
-                    historicoSoluciones.remove(0);
-                }
-                actualizarMatrizFrecuencia(mejorSolucionIteracion);
-            }
-
-            // Log de la iteración
-            System.out.println("🔄 Iteración ACO " + iterACO + " - Calidad: " +
-                    String.format("%.6f", mejorCalidadIteracion) +
-                    " - Pedidos: " + (mejorSolucionIteracion != null ?
-                    mejorSolucionIteracion.getNumeroPedidosAsignados() : 0) +
-                    "/" + estadoActual.getPedidosPendientes().size());
-        }
-
-        // Log final de ACO
-        if (mejorSolucionGlobalACO != null) {
-            loggerACO.logIteracion(
-                    iteracion,
-                    mejorSolucionGlobalACO,
-                    estadoInicial.getCamionesDisponibles(),
-                    estadoInicial.getPedidosPendientes().size(),
-                    System.currentTimeMillis() - tiempoInicioEjecucion
-            );
-            monitor.mostrarRutasDetalladas(mejorSolucionGlobalACO);
-        }
-
-        // Actualizar mejores soluciones globales para todo el algoritmo
-        if (mejorSolucionGlobalACO != null && mejorSolucionGlobalACO.getCalidad() > mejorCalidadGlobal) {
-            mejorSolucionGlobal = mejorSolucionGlobalACO;
-            mejorCalidadGlobal = mejorSolucionGlobalACO.getCalidad();
-        }
-
-        return mejorSolucionGlobalACO;
-    }
-
-    /**
-     * Simula cambios dinámicos en el sistema entre iteraciones de ACO
-     * (nuevos pedidos, averías, etc.)
-     */
-    private EstadoActual simularCambiosDinamicos(EstadoActual estadoActual, int iteracion) {
-        // Crear una copia del estado actual
-        EstadoActual nuevoEstado = new EstadoActual(
-                new HashMap<>(estadoActual.getPosicionesCamiones()),
-                new ArrayList<>(estadoActual.getCamionesDisponibles()),
-                new ArrayList<>(estadoActual.getPedidosPendientes()),
-                estadoActual.getTiempoActual()
-        );
-
-        // 1. Simular llegada de nuevos pedidos (solo en algunas iteraciones para simular naturaleza estocástica)
-        if (iteracion % 3 == 0) { // Cada 3 iteraciones
-            // Generar pedidos sintéticos o usar pedidos reales con timestamps futuros
-            List<Pedido> nuevosPedidos = simularNuevosPedidos(estadoActual.getTiempoActual());
-
-            if (!nuevosPedidos.isEmpty()) {
-                nuevoEstado.getPedidosPendientes().addAll(nuevosPedidos);
-                System.out.println("📦 Simulación: " + nuevosPedidos.size() +
-                        " nuevos pedidos en iteración ACO " + iteracion);
-            }
-        }
-
-        // 2. Simular averías aleatorias (con probabilidad baja)
-        if (random.nextDouble() < 0.05) { // 5% de probabilidad de avería
-            Camion camionAveriado = simularAveriaCamion(nuevoEstado.getCamionesDisponibles());
-
-            if (camionAveriado != null) {
-                // Remover camión de disponibles
-                nuevoEstado.getCamionesDisponibles().remove(camionAveriado);
-
-                System.out.println("🔧 Simulación: Avería de camión " +
-                        camionAveriado.getId() + " en iteración ACO " + iteracion);
-            }
-        }
-
-        return nuevoEstado;
-    }
-
-    /**
-     * Simula la llegada de nuevos pedidos
-     */
-    private List<Pedido> simularNuevosPedidos(LocalDateTime tiempo) {
-        // Para testing, podemos usar pedidos reales con timestamps cercanos al futuro
-        return mapa.getPedidos().stream()
-                .filter(p -> p.getFechaRegistro().isAfter(tiempo) &&
-                        p.getFechaRegistro().isBefore(tiempo.plusMinutes(30)) &&
-                        !pedidosProcesados.contains(p.getIdPedido()))
-                .peek(p -> pedidosProcesados.add(p.getIdPedido()))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Simula una avería en un camión aleatorio
-     */
-    private Camion simularAveriaCamion(List<Camion> camionesDisponibles) {
-        if (camionesDisponibles.isEmpty()) {
-            return null;
-        }
-
-        // Seleccionar un camión aleatorio
-        int idx = random.nextInt(camionesDisponibles.size());
-        return camionesDisponibles.get(idx);
-    }
-
-    /**
      * Clase interna para representar estado actual del sistema
      */
-    @Getter @Setter
+    @Getter
+    @Setter
     private static class EstadoActual {
         private Map<String, Ubicacion> posicionesCamiones;
         private List<Camion> camionesDisponibles;

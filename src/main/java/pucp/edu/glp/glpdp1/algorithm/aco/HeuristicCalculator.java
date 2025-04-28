@@ -12,6 +12,7 @@ import pucp.edu.glp.glpdp1.domain.Ubicacion;
 import pucp.edu.glp.glpdp1.domain.enums.TipoAlmacen;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 
@@ -356,6 +357,54 @@ public class HeuristicCalculator {
                         int idSiguiente = nodoSiguiente.getId();
                         matrizHeuristicaActual[idIntermedio][idSiguiente] *= factor;
                         matrizHeuristicaActual[idSiguiente][idIntermedio] *= factor;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Prioriza pedidos por urgencia en la heurística
+     */
+    private void ajustarHeuristicaPorUrgencia(List<Pedido> pedidos, LocalDateTime tiempoActual) {
+        // Para cada pedido, calcular su urgencia y ajustar la heurística
+        for (Pedido pedido : pedidos) {
+            // Calcular minutos restantes hasta fecha límite
+            long minutosRestantes = ChronoUnit.MINUTES.between(tiempoActual, pedido.getFechaLimite());
+
+            // Factor de urgencia (inversamente proporcional a tiempo restante)
+            // Cuanto menos tiempo queda, mayor es el factor
+            double factorUrgencia = Math.max(1.0, 600.0 / Math.max(30.0, minutosRestantes));
+
+            // Aumentar heurística para nodos cercanos a este pedido
+            Nodo nodoPedido = grafo.obtenerNodo(pedido.getDestino());
+            if (nodoPedido != null) {
+                int idPedido = nodoPedido.getId();
+
+                // Área de influencia (prioritizar rutas hacia pedidos urgentes)
+                for (int i = 0; i < tamanio; i++) {
+                    Nodo nodoOrigen = grafo.getNodoPorId(i);
+                    if (nodoOrigen == null) continue;
+
+                    // Calcular distancia al pedido
+                    double distancia = DistanceCalculator.calcularDistanciaManhattan(
+                            nodoOrigen.getUbicacion(), pedido.getDestino());
+
+                    // Influir en dirección hacia pedido urgente
+                    if (distancia < 20) { // Radio de influencia
+                        for (int j = 0; j < tamanio; j++) {
+                            Nodo nodoDestino = grafo.getNodoPorId(j);
+                            if (nodoDestino == null) continue;
+
+                            // Si este movimiento acerca al pedido urgente
+                            double distanciaDestinoPedido = DistanceCalculator.calcularDistanciaManhattan(
+                                    nodoDestino.getUbicacion(), pedido.getDestino());
+
+                            if (distanciaDestinoPedido < distancia) {
+                                // Aumentar heurística basada en urgencia
+                                matrizHeuristicaActual[i][j] *= factorUrgencia;
+                            }
+                        }
                     }
                 }
             }

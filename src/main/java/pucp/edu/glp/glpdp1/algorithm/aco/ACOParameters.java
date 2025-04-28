@@ -19,7 +19,7 @@ public class ACOParameters {
     private double umbralConvergenciaTemprana = 0.6;  // 60% del total de iteraciones
     private double factorEvaporacion = 0.3;
     private double alfa = 1.0;  // Importancia de las feromonas
-    private double beta = 2.0;  // Importancia de la heurística
+    private double beta = 3.0;  // Importancia de la heurística
     private double q0 = 0.9;    // Parámetro de exploración vs explotación
     private double feromonaInicial = 0.4;
 

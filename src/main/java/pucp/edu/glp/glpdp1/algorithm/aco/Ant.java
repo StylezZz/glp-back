@@ -154,8 +154,8 @@ public class Ant {
         if (posicionesActuales != null && posicionesActuales.containsKey(mejorCamion.getId())) {
             ubicacionInicial = posicionesActuales.get(mejorCamion.getId());
             // Añadir debugging para confirmar que se está usando la posición correcta
-            System.out.println("🚚 Camión " + mejorCamion.getId() + " planificando desde (" +
-                    ubicacionInicial.getX() + "," + ubicacionInicial.getY() + ")");
+            // System.out.println("🚚 Camión " + mejorCamion.getId() + " planificando desde (" +
+            //        ubicacionInicial.getX() + "," + ubicacionInicial.getY() + ")");
         } else {
             ubicacionInicial = obtenerUbicacionAlmacenCentral(grafo);
             System.out.println("⚠️ No hay posición actual para " + mejorCamion.getId() +
